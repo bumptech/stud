@@ -44,6 +44,7 @@
 #include <getopt.h>
 #include <pwd.h>
 #include <limits.h>
+#include <syslog.h>
 
 #include <sched.h>
 
@@ -95,6 +96,7 @@ typedef struct stud_options {
     int SHARED_CACHE;
 #endif
     int QUIET;
+    int SYSLOG;
 } stud_options;
 
 static stud_options OPTIONS = {
@@ -115,7 +117,8 @@ static stud_options OPTIONS = {
 #ifdef USE_SHARED_CACHE
     0,            // SHARED_CACHE
 #endif
-    0             // QUIET
+    0,             // QUIET
+    0             // SYSLOG    
 };
 
 
@@ -171,11 +174,17 @@ static void fail(const char* s) {
     exit(1);
 }
 
-#define LOG(...) \
-    do { if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); } while(0)
+#define LOG(...)                                        \
+    do {                                                \
+      if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); \
+      if (OPTIONS.SYSLOG) syslog(LOG_INFO, __VA_ARGS__);                    \
+    } while(0)
 
-#define ERR(...) \
-    do { fprintf(stderr, __VA_ARGS__); } while(0)
+#define ERR(...)                    \
+    do {                            \
+      fprintf(stderr, __VA_ARGS__); \
+      if (OPTIONS.SYSLOG) syslog(LOG_ERR, __VA_ARGS__); \
+    } while(0)
 
 #ifndef OPENSSL_NO_DH
 static int init_dh(SSL_CTX *ctx, const char *cert) {
@@ -766,10 +775,10 @@ static void handle_connections(SSL_CTX *ctx) {
 /* Print usage w/error message and exit failure */
 static void usage_fail(const char *prog, const char *msg) {
     if (msg)
-        ERR("%s: %s\n", prog, msg);
-    ERR("usage: %s [OPTION] PEM\n", prog);
+        fprintf(stderr, "%s: %s\n", prog, msg);
+    fprintf(stderr, "usage: %s [OPTION] PEM\n", prog);
 
-    ERR(
+    fprintf(stderr,
 "Encryption Methods:\n"
 "  --tls                    (TLSv1, default)\n"
 "  --ssl                    (SSLv3)\n"
@@ -792,6 +801,9 @@ static void usage_fail(const char *prog, const char *msg) {
 "\n"
 "Logging:\n"
 "  -q                       Be quiet. Emit only error messages\n"
+"\n"
+"Syslog:\n"
+"  -s                       Send log message to syslog in addition to stderr/stdout\n"
 "\n"
 "Special:\n"
 "  --write-ip               (write 1 octet with the IP family followed by\n"
@@ -856,7 +868,7 @@ static void parse_cli(int argc, char **argv) {
 
     while (1) {
         int option_index = 0;
-        c = getopt_long(argc, argv, "hf:b:n:c:u:r:B:C:q",
+        c = getopt_long(argc, argv, "hf:b:n:c:u:r:B:C:q:s",
                 long_options, &option_index);
 
         if (c == -1)
@@ -932,7 +944,11 @@ static void parse_cli(int argc, char **argv) {
         case 'q':
             OPTIONS.QUIET = 1;
             break;
-
+        
+        case 's':
+            OPTIONS.SYSLOG = 1;
+            break;
+            
         default:
             usage_fail(prog, NULL);
         }
@@ -977,6 +993,8 @@ void drop_privileges() {
  * spawn child (worker) processes, and wait for them all to die
  * (which they shouldn't!) */
 int main(int argc, char **argv) {
+    openlog("stud", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_DAEMON);
+    
     parse_cli(argc, argv);
 
     signal(SIGPIPE, SIG_IGN);
