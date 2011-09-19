@@ -92,6 +92,7 @@ Detail about the entire set of options can be found by invoking `stud -h`:
     Socket:
       -b HOST,PORT             backend [connect] (default is "127.0.0.1,8000")
       -f HOST,PORT             frontend [bind] (default is "*,8443")
+      -m FHOST,FPORT,BHOST,BPORT[,"ip"|"proxy"]     mapping mode (up to 16 mappings)
 
     Performance:
       -n CORES                 number of worker processes (default is 1)
@@ -146,3 +147,4 @@ Contributors:
     * Joe Williams                  -- Syslog support
     * Jason Cook                    -- SSL option tweaks (performance)
     * Artur Bergman                 -- Socket tweaks (performance)
+    * P-Yves Kerembellec @pyke369   -- mapping/routing mode (feature)

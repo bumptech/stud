@@ -64,12 +64,14 @@
 # define AI_ADDRCONFIG 0
 #endif
 
+#define MAPPINGS_MAX 16
+
 /* Globals */
 static struct ev_loop *loop;
-static struct addrinfo *backaddr;
+static struct addrinfo *backaddr[MAPPINGS_MAX];
 static pid_t master_pid;
-static ev_io listener;
-static int listener_socket;
+static ev_io listener[MAPPINGS_MAX];
+static int listener_socket[MAPPINGS_MAX];
 static int child_num;
 
 /* Command line Options */
@@ -78,17 +80,22 @@ typedef enum {
     ENC_SSL
 } ENC_TYPE;
 
-typedef struct stud_options {
-    ENC_TYPE ETYPE;
-    int WRITE_IP_OCTET;
-    int WRITE_PROXY_LINE;
-    const char* CHROOT;
-    uid_t UID;
-    gid_t GID;
+typedef struct stud_mapping {
     const char *FRONT_IP;
     const char *FRONT_PORT;
     const char *BACK_IP;
     const char *BACK_PORT;
+    int WRITE_IP_OCTET;
+    int WRITE_PROXY_LINE;
+} stud_mapping;
+
+typedef struct stud_options {
+    ENC_TYPE ETYPE;
+    const char* CHROOT;
+    uid_t UID;
+    gid_t GID;
+    int MAPPINGS_COUNT;
+    stud_mapping MAPPINGS[MAPPINGS_MAX];
     long NCORES;
     const char *CERT_FILE;
     const char *CIPHER_SUITE;
@@ -102,15 +109,11 @@ typedef struct stud_options {
 
 static stud_options OPTIONS = {
     ENC_TLS,      // ETYPE
-    0,            // WRITE_IP_OCTET
-    0,            // WRITE_PROXY_LINE
     NULL,         // CHROOT
     0,            // UID
     0,            // GID
-    NULL,         // FRONT_IP
-    "8443",       // FRONT_PORT
-    "127.0.0.1",  // BACK_IP
-    "8000",       // BACK_PORT
+    1,            // MAPPINGS_COUNT
+    {{NULL, "8443", "127.0.0.1", "8000", 0, 0}}, // DEFAULT MAPPING
     1,            // NCORES
     NULL,         // CERT_FILE
     NULL,         // CIPHER_SUITE
@@ -124,7 +127,7 @@ static stud_options OPTIONS = {
 
 
 
-static char tcp_proxy_line[128] = "";
+static char tcp_proxy_line[MAPPINGS_MAX][128];
 
 /* What agent/state requests the shutdown--for proper half-closed
  * handling */
@@ -133,6 +136,12 @@ typedef enum _SHUTDOWN_REQUESTOR {
     SHUTDOWN_DOWN,
     SHUTDOWN_UP
 } SHUTDOWN_REQUESTOR;
+
+/* Mapping context */
+typedef struct {
+    SSL_CTX *ctx;         /* OpenSSL SSL context template */
+    int index;            /* mapping index */
+} listenerctx;
 
 /*
  * Proxied State
@@ -160,6 +169,8 @@ typedef struct proxystate {
     SSL *ssl;             /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
+
+    int index;            /* mapping index */
 } proxystate;
 
 /* set a file descriptor (socket) to non-blocking mode */
@@ -268,28 +279,28 @@ static SSL_CTX * init_openssl() {
     return ctx;
 }
 
-static void prepare_proxy_line(struct sockaddr* ai_addr) {
-    tcp_proxy_line[0] = 0;
+static void prepare_proxy_line(struct sockaddr* ai_addr, int index) {
+    tcp_proxy_line[index][0] = 0;
     char tcp6_address_string[INET6_ADDRSTRLEN];
 
     if (ai_addr->sa_family == AF_INET) {
         struct sockaddr_in* addr = (struct sockaddr_in*)ai_addr;
-        size_t res = snprintf(tcp_proxy_line,
-                sizeof(tcp_proxy_line),
+        size_t res = snprintf(tcp_proxy_line[index],
+                sizeof(tcp_proxy_line[index]),
                 "PROXY %%s %%s %s %%hu %hu\r\n",
                 inet_ntoa(addr->sin_addr),
                 ntohs(addr->sin_port));
-        assert(res < sizeof(tcp_proxy_line));
+        assert(res < sizeof(tcp_proxy_line[index]));
     }
     else if (ai_addr->sa_family == AF_INET6 ) {
       struct sockaddr_in6* addr = (struct sockaddr_in6*)ai_addr;
       inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
-      size_t res = snprintf(tcp_proxy_line,
-			    sizeof(tcp_proxy_line),
+      size_t res = snprintf(tcp_proxy_line[index],
+			    sizeof(tcp_proxy_line[index]),
 			    "PROXY %%s %%s %s %%hu %hu\r\n",
 			    tcp6_address_string,
 			    ntohs(addr->sin6_port));
-      assert(res < sizeof(tcp_proxy_line));
+      assert(res < sizeof(tcp_proxy_line[index]));
     }
     else {
         ERR("The --write-proxy mode is not implemented for this address family.\n");
@@ -298,13 +309,13 @@ static void prepare_proxy_line(struct sockaddr* ai_addr) {
 }
 
 /* Create the bound socket in the parent process */
-static int create_main_socket() {
+static int create_main_socket(int index) {
     struct addrinfo *ai, hints;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
-    const int gai_err = getaddrinfo(OPTIONS.FRONT_IP, OPTIONS.FRONT_PORT,
+    const int gai_err = getaddrinfo(OPTIONS.MAPPINGS[index].FRONT_IP, OPTIONS.MAPPINGS[index].FRONT_PORT,
                                     &hints, &ai);
     if (gai_err != 0) {
         ERR("{getaddrinfo}: [%s]\n", gai_strerror(gai_err));
@@ -328,7 +339,7 @@ static int create_main_socket() {
     setsockopt(s, IPPROTO_TCP, TCP_DEFER_ACCEPT, &timeout, sizeof(int) );
 #endif /* TCP_DEFER_ACCEPT */
 
-    prepare_proxy_line(ai->ai_addr);
+    prepare_proxy_line(ai->ai_addr, index);
 
     freeaddrinfo(ai);
     listen(s, OPTIONS.BACKLOG);
@@ -338,11 +349,11 @@ static int create_main_socket() {
 
 /* Initiate a clear-text nonblocking connect() to the backend IP on behalf
  * of a newly connected upstream (encrypted) client*/
-static int create_back_socket() {
-    int s = socket(backaddr->ai_family, SOCK_STREAM, IPPROTO_TCP);
+static int create_back_socket(int index) {
+    int s = socket(backaddr[index]->ai_family, SOCK_STREAM, IPPROTO_TCP);
     int t = 1;
     setnonblocking(s);
-    t = connect(s, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(s, backaddr[index]->ai_addr, backaddr[index]->ai_addrlen);
     if (t == 0 || errno == EINPROGRESS || errno == EINTR)
         return s;
 
@@ -478,7 +489,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
     proxystate *ps = (proxystate *)w->data;
     char tcp6_address_string[INET6_ADDRSTRLEN];
     size_t written = 0;
-    t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(ps->fd_down, backaddr[ps->index]->ai_addr, backaddr[ps->index]->ai_addrlen);
     if (!t || errno == EISCONN || !errno) {
         /* INIT */
         ev_io_stop(loop, &ps->ev_w_down);
@@ -486,7 +497,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
         ev_io_init(&ps->ev_w_down, back_write, ps->fd_down, EV_WRITE);
         start_handshake(ps, SSL_ERROR_WANT_READ); /* for client-first handshake */
         ev_io_start(loop, &ps->ev_r_down);
-        if (OPTIONS.WRITE_PROXY_LINE) {
+        if (OPTIONS.MAPPINGS[ps->index].WRITE_PROXY_LINE) {
             char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
             assert(ps->remote_ip.ss_family == AF_INET ||
 		   ps->remote_ip.ss_family == AF_INET6);
@@ -494,7 +505,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
 	      struct sockaddr_in* addr = (struct sockaddr_in*)&ps->remote_ip;
 	      written = snprintf(ring_pnt,
 				 RING_DATA_LEN,
-				 tcp_proxy_line,
+				 tcp_proxy_line[ps->index],
 				 "TCP4",
 				 inet_ntoa(addr->sin_addr),
 				 ntohs(addr->sin_port));
@@ -504,7 +515,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
 	      inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
 	      written = snprintf(ring_pnt,
 				 RING_DATA_LEN,
-				 tcp_proxy_line,
+				 tcp_proxy_line[ps->index],
 				 "TCP6",
 				 tcp6_address_string,
 				 ntohs(addr->sin6_port));
@@ -512,7 +523,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
             ringbuffer_write_append(&ps->ring_down, written);
             ev_io_start(loop, &ps->ev_w_down);
         }
-        else if (OPTIONS.WRITE_IP_OCTET) {
+        else if (OPTIONS.MAPPINGS[ps->index].WRITE_IP_OCTET) {
             char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
             assert(ps->remote_ip.ss_family == AF_INET ||
                    ps->remote_ip.ss_family == AF_INET6);
@@ -704,8 +715,9 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     }
 #endif
 
+    listenerctx *lc = (listenerctx *)w->data;
     setnonblocking(client);
-    int back = create_back_socket();
+    int back = create_back_socket(lc->index);
 
     if (back == -1) {
         close(client);
@@ -713,8 +725,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
         return;
     }
 
-    SSL_CTX * ctx = (SSL_CTX *)w->data;
-    SSL *ssl = SSL_new(ctx);
+    SSL *ssl = SSL_new(lc->ctx);
     long mode = SSL_MODE_ENABLE_PARTIAL_WRITE;
 #ifdef SSL_MODE_RELEASE_BUFFERS
     mode |= SSL_MODE_RELEASE_BUFFERS;
@@ -730,6 +741,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->ssl = ssl;
     ps->want_shutdown = 0;
     ps->remote_ip = addr;
+    ps->index = lc->index;
     ringbuffer_init(&ps->ring_up);
     ringbuffer_init(&ps->ring_down);
 
@@ -760,10 +772,12 @@ static void check_ppid(struct ev_loop *loop, ev_timer *w, int revents) {
     if (ppid != master_pid) {
         ERR("{core} Process %d detected parent death, closing listener socket.\n", child_num);
         ev_timer_stop(loop, w);
-        ev_io_stop(loop, &listener);
-        close(listener_socket);
+        int index;
+        for (index = 0; index < OPTIONS.MAPPINGS_COUNT; index ++) {
+            ev_io_stop(loop, &(listener[index]));
+            close(listener_socket[index]);
+        }
     }
-
 }
 
 
@@ -790,9 +804,15 @@ static void handle_connections(SSL_CTX *ctx) {
     ev_timer_init(&timer_ppid_check, check_ppid, 1.0, 1.0);
     ev_timer_start(loop, &timer_ppid_check);
 
-    ev_io_init(&listener, handle_accept, listener_socket, EV_READ);
-    listener.data = ctx;
-    ev_io_start(loop, &listener);
+    int index;
+    for (index = 0; index < OPTIONS.MAPPINGS_COUNT; index ++) {
+        ev_io_init(&(listener[index]), handle_accept, listener_socket[index], EV_READ);
+        listenerctx *lc = (listenerctx *)malloc(sizeof(listenerctx));
+        lc->ctx = ctx;
+        lc->index = index;
+        listener[index].data = lc;
+        ev_io_start(loop, &(listener[index]));
+    }
 
     ev_loop(loop, 0);
     ERR("{core} Child %d exiting.\n", child_num);
@@ -815,6 +835,7 @@ static void usage_fail(const char *prog, const char *msg) {
 "Socket:\n"
 "  -b HOST,PORT             backend [connect] (default is \"127.0.0.1,8000\")\n"
 "  -f HOST,PORT             frontend [bind] (default is \"*,8443\")\n"
+"  -m FHOST,FPORT,BHOST,BPORT[,\"ip\"|\"proxy\"]     mapping mode (up to %d mappings)\n"
 "\n"
 "Performance:\n"
 "  -n CORES                 number of worker processes (default is 1)\n"
@@ -836,7 +857,8 @@ static void usage_fail(const char *prog, const char *msg) {
 "                           address in 4 (IPv4) or 16 (IPv6) octets little-endian\n"
 "                           to backend before the actual data\n"
 "  --write-proxy            write HaProxy's PROXY (IPv4 or IPv6) protocol line\n" 
-"                           before actual data\n"
+"                           before actual data\n",
+MAPPINGS_MAX
 );
     exit(1);
 }
@@ -877,21 +899,21 @@ static void parse_cli(int argc, char **argv) {
     const char *prog = argv[0];
 
     static int tls = 0, ssl = 0;
-    int c;
+    int c, first = 1;
     struct passwd* passwd;
 
     static struct option long_options[] =
     {
         {"tls", 0, &tls, 1},
         {"ssl", 0, &ssl, 1},
-        {"write-ip", 0, &OPTIONS.WRITE_IP_OCTET, 1},
-        {"write-proxy", 0, &OPTIONS.WRITE_PROXY_LINE, 1},
+        {"write-ip", 0, &(OPTIONS.MAPPINGS[0].WRITE_IP_OCTET), 1},
+        {"write-proxy", 0, &(OPTIONS.MAPPINGS[0].WRITE_PROXY_LINE), 1},
         {0, 0, 0, 0}
     };
 
     while (1) {
         int option_index = 0;
-        c = getopt_long(argc, argv, "hf:b:n:c:u:r:B:C:q:s",
+        c = getopt_long(argc, argv, "hf:b:m:n:c:u:r:B:C:q:s",
                 long_options, &option_index);
 
         if (c == -1)
@@ -913,11 +935,42 @@ static void parse_cli(int argc, char **argv) {
             break;
 
         case 'b':
-            parse_host_and_port(prog, "-b", optarg, 0, &(OPTIONS.BACK_IP), &(OPTIONS.BACK_PORT));
+            parse_host_and_port(prog, "-b", optarg, 0, &(OPTIONS.MAPPINGS[0].BACK_IP), &(OPTIONS.MAPPINGS[0].BACK_PORT));
             break;
 
         case 'f':
-            parse_host_and_port(prog, "-f", optarg, 1, &(OPTIONS.FRONT_IP), &(OPTIONS.FRONT_PORT));
+            parse_host_and_port(prog, "-f", optarg, 1, &(OPTIONS.MAPPINGS[0].FRONT_IP), &(OPTIONS.MAPPINGS[0].FRONT_PORT));
+            break;
+
+        case 'm':
+            if (first) {
+                OPTIONS.MAPPINGS_COUNT = 0;
+                first = 0;
+            }
+            if (OPTIONS.MAPPINGS_COUNT >= MAPPINGS_MAX) {
+                ERR("Too many mappings (a maximum of %d mappings is allowed).\n", MAPPINGS_MAX);
+                exit(1);
+            }
+            char *sep1, *sep2;
+            if (!(sep1 = strchr(optarg, ',')) || !(sep1 = strchr(sep1 + 1, ','))) {
+                usage_fail(prog, "invalid option for -m FHOST,FPORT,...");
+            }
+            *sep1 = 0;
+            if (!(sep2 = strchr(sep1 + 1, ','))) {
+                usage_fail(prog, "invalid option for -m ...,BHOST,BPORT");
+            }
+            if ((sep2 = strchr(sep2 + 1, ','))) {
+                *sep2 = 0;
+                if (!strcasecmp(sep2 + 1, "ip")) {
+                    OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].WRITE_IP_OCTET = 1;
+                }
+                if (!strcasecmp(sep2 + 1, "proxy")) {
+                    OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].WRITE_PROXY_LINE = 1;
+                }
+            }
+            parse_host_and_port(prog, "-m", optarg, 1, &(OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].FRONT_IP), &(OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].FRONT_PORT));
+            parse_host_and_port(prog, "-m", sep1 + 1, 0, &(OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].BACK_IP), &(OPTIONS.MAPPINGS[OPTIONS.MAPPINGS_COUNT].BACK_PORT));
+            OPTIONS.MAPPINGS_COUNT ++;
             break;
             
         case 'c':
@@ -984,8 +1037,11 @@ static void parse_cli(int argc, char **argv) {
     if (ssl)
         OPTIONS.ETYPE = ENC_SSL; // implied.. else, TLS
 
-    if (OPTIONS.WRITE_IP_OCTET && OPTIONS.WRITE_PROXY_LINE)
-        usage_fail(prog, "Cannot specify both --write-ip and --write-proxy; pick one!");
+    int index;
+    for (index = 0; index < OPTIONS.MAPPINGS_COUNT; index ++) {
+        if (OPTIONS.MAPPINGS[index].WRITE_IP_OCTET && OPTIONS.MAPPINGS[index].WRITE_PROXY_LINE)
+            usage_fail(prog, "Cannot specify both --write-ip and --write-proxy; pick one!");
+    }
 
     argc -= optind;
     argv += optind;
@@ -1024,18 +1080,21 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
 
-    listener_socket = create_main_socket();
+    int index;
+    for (index = 0; index < OPTIONS.MAPPINGS_COUNT; index ++) {
+        listener_socket[index] = create_main_socket(index);
 
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
-    const int gai_err = getaddrinfo(OPTIONS.BACK_IP, OPTIONS.BACK_PORT,
-                                    &hints, &backaddr);
-    if (gai_err != 0) {
-        ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
-        exit(1);
+        struct addrinfo hints;
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = 0;
+        const int gai_err = getaddrinfo(OPTIONS.MAPPINGS[index].BACK_IP, OPTIONS.MAPPINGS[index].BACK_PORT,
+                                        &hints, &(backaddr[index]));
+        if (gai_err != 0) {
+            ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
+            exit(1);
+        }
     }
 
     /* load certificate, pass to handle_connections */
