@@ -1,6 +1,7 @@
 # [g]make USE_xxxx=1
 #
 # USE_SHARED_CACHE   :   enable/disable a shared session cache (disabled by default)
+# USE_MEMCACHED      :   enable/disable session sharing with memcached (disabled by default)
 
 DESTDIR =
 PREFIX  = /usr/local
@@ -12,6 +13,13 @@ LDFLAGS = -lssl -lcrypto -lev
 OBJS    = stud.o ringbuffer.o
 
 all: realall
+
+# Memcached
+ifneq ($(USE_MEMCACHED),)
+USE_SHARED_CACHE = 1
+CFLAGS  += -DUSE_MEMCACHED
+LDFLAGS += -lmemcached
+endif
 
 # Shared cache feature
 ifneq ($(USE_SHARED_CACHE),)

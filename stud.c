@@ -54,6 +54,7 @@
 #include <openssl/err.h>
 #include <ev.h>
 
+#include "stud.h"
 #include "ringbuffer.h"
 #include "shctx.h"
 
@@ -72,35 +73,7 @@ static ev_io listener;
 static int listener_socket;
 static int child_num;
 
-/* Command line Options */
-typedef enum {
-    ENC_TLS,
-    ENC_SSL
-} ENC_TYPE;
-
-typedef struct stud_options {
-    ENC_TYPE ETYPE;
-    int WRITE_IP_OCTET;
-    int WRITE_PROXY_LINE;
-    const char* CHROOT;
-    uid_t UID;
-    gid_t GID;
-    const char *FRONT_IP;
-    const char *FRONT_PORT;
-    const char *BACK_IP;
-    const char *BACK_PORT;
-    long NCORES;
-    const char *CERT_FILE;
-    const char *CIPHER_SUITE;
-    int BACKLOG;
-#ifdef USE_SHARED_CACHE
-    int SHARED_CACHE;
-#endif
-    int QUIET;
-    int SYSLOG;
-} stud_options;
-
-static stud_options OPTIONS = {
+stud_options OPTIONS = {
     ENC_TLS,      // ETYPE
     0,            // WRITE_IP_OCTET
     0,            // WRITE_PROXY_LINE
@@ -117,7 +90,10 @@ static stud_options OPTIONS = {
     100,          // BACKLOG
 #ifdef USE_SHARED_CACHE
     0,            // SHARED_CACHE
-#endif
+#ifdef USE_MEMCACHED
+    NULL,         // MEMCACHED
+#endif /* USE_MEMCACHED */
+#endif /* USE_SHARED_CACHE */
     0,             // QUIET
     0             // SYSLOG    
 };
@@ -174,18 +150,6 @@ static void fail(const char* s) {
     perror(s);
     exit(1);
 }
-
-#define LOG(...)                                        \
-    do {                                                \
-      if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); \
-      if (OPTIONS.SYSLOG) syslog(LOG_INFO, __VA_ARGS__);                    \
-    } while(0)
-
-#define ERR(...)                    \
-    do {                            \
-      fprintf(stderr, __VA_ARGS__); \
-      if (OPTIONS.SYSLOG) syslog(LOG_ERR, __VA_ARGS__); \
-    } while(0)
 
 #ifndef OPENSSL_NO_DH
 static int init_dh(SSL_CTX *ctx, const char *cert) {
@@ -257,13 +221,19 @@ static SSL_CTX * init_openssl() {
             ERR_print_errors_fp(stderr);
 
 #ifdef USE_SHARED_CACHE
+#ifdef USE_MEMCACHED
+    if (OPTIONS.MEMCACHED && !OPTIONS.SHARED_CACHE) {
+        ERR("{cache} memcached cannot be used without a local cache.\n");
+        exit(1);
+    }
+#endif /* USE_MEMCACHED */
     if (OPTIONS.SHARED_CACHE) {
         if (shared_context_init(ctx, OPTIONS.SHARED_CACHE) < 0) {
-            ERR("Unable to alloc memory for shared cache.\n");
+            ERR("{cache} Unable to initialize shared cache.\n");
             exit(1);
         }
     }
-#endif
+#endif /* USE_SHARED_CACHE */
 
     return ctx;
 }
@@ -821,7 +791,10 @@ static void usage_fail(const char *prog, const char *msg) {
 "  -B BACKLOG               set listen backlog size (default is 100)\n"
 #ifdef USE_SHARED_CACHE
 "  -C SHARED_CACHE          set shared cache size in sessions (default no shared cache)\n"
-#endif
+#ifdef USE_MEMCACHED
+"  -M MEMCACHED             enable use of the specified memcached servers for sessions\n"
+#endif /* USE_MEMCACHED */
+#endif /* USE_SHARED_CACHE */
 "\n"
 "Security:\n"
 "  -r PATH                  chroot\n"
@@ -891,7 +864,7 @@ static void parse_cli(int argc, char **argv) {
 
     while (1) {
         int option_index = 0;
-        c = getopt_long(argc, argv, "hf:b:n:c:u:r:B:C:q:s",
+        c = getopt_long(argc, argv, "hf:b:n:c:u:r:B:C:M:q:s",
                 long_options, &option_index);
 
         if (c == -1)
@@ -962,7 +935,13 @@ static void parse_cli(int argc, char **argv) {
                 exit(1);
             }
             break;
-#endif
+
+#ifdef USE_MEMCACHED
+        case 'M':
+            OPTIONS.MEMCACHED = optarg;
+            break;
+#endif /* USE_MEMCACHED */
+#endif /* USE_SHARED_CACHE */
 
         case 'q':
             OPTIONS.QUIET = 1;

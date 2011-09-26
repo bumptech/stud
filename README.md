@@ -26,7 +26,10 @@ connected client.
 Thanks to a contribution from Emeric at Exceliance (the folks behind HAProxy),
 a special build of `stud` can be made that utilitizes shared memory to
 use a common session cache between all child processes.  This can speed up
-large `stud` deployments by avoiding client renegotiation.
+large `stud` deployments by avoiding client renegotiation. `stud` can
+also be built with memcached support to share the session cache
+between several hosts. Keep in mind this support is somewhat
+experimental and hinders performances.
 
 Releases
 ---------

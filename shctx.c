@@ -15,6 +15,13 @@
 #include <pthread.h>
 #endif /* USE_SYSCALL_FUTEX */
 
+#ifdef USE_MEMCACHED
+#include <libmemcached/memcached.h>
+#define MEMCACHE_NAME "stud"
+#define MEMCACHE_NAME_LEN 4
+#endif
+
+#include "stud.h"
 #include "ebtree/ebmbtree.h"
 #include "shctx.h"
 
@@ -39,6 +46,9 @@ struct shared_context {
         pthread_mutex_t mutex;
 #endif
         struct shared_session head;
+#ifdef USE_MEMCACHED
+	memcached_st memcached;
+#endif /* USE_MEMCACHED */
 };
 
 /* Static shared context */
@@ -142,6 +152,23 @@ static inline void shared_context_unlock(void)
 
 /* SSL context callbacks */
 
+#ifdef USE_MEMCACHED
+char *build_memkey(unsigned char *session_id, unsigned int session_id_length,
+		   unsigned int *keylen) {
+	static char memkey[MEMCACHE_NAME_LEN + 1
+			   + 2*SSL_MAX_SSL_SESSION_ID_LENGTH + 1];
+	*keylen = MEMCACHE_NAME_LEN      /* Prefix */
+		+ 1			 /* : */
+		+ session_id_length * 2; /* Hexadecimal encoding */
+	memcpy(memkey, MEMCACHE_NAME, MEMCACHE_NAME_LEN);
+	memkey[MEMCACHE_NAME_LEN] = ':';
+	for (unsigned int i = 0; i < session_id_length; i++)
+		snprintf(memkey + MEMCACHE_NAME_LEN + 1 + i * 2, 3,
+			 "%02X", session_id[i]);
+	return memkey;
+}
+#endif
+
 int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
 	(void)ssl;
 	struct shared_session *retshs;
@@ -175,17 +202,29 @@ int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
 
 	shared_context_unlock();
 
-	return 1; /* leave the session in local cache for reuse */
+#ifdef USE_MEMCACHED
+	/* Try to add it to memcached */
+	if (OPTIONS.MEMCACHED) {
+		memcached_return_t rc;
+		unsigned int keylen;
+		char *memkey = build_memkey(sess->session_id, sess->session_id_length, &keylen);
+		rc = memcached_set(&shctx->memcached, memkey, keylen,
+				   (const char *)retshs->data, val_len,
+				   time(NULL) + SSL_SESSION_get_timeout(sess), 0);
+		if (rc != MEMCACHED_SUCCESS)
+			ERR("{cache} memcached_set() failed: %s\n",
+			    memcached_strerror(&shctx->memcached, rc));
+	}
+#endif
 
-	/* Avoid warnings */
-	ssl = NULL;
+	return 1; /* leave the session in local cache for reuse */
 }
 
 SSL_SESSION *shctx_get_cb(SSL *ssl, unsigned char *key, int key_len, int *do_copy) {
 	(void)ssl;
 	struct shared_session *retshs;
 	unsigned char *val_tmp=NULL;
-	SSL_SESSION *sess;
+	SSL_SESSION *sess=NULL;
 
 	*do_copy = 0; /* allow the session to be freed autmatically */
 
@@ -208,22 +247,41 @@ SSL_SESSION *shctx_get_cb(SSL *ssl, unsigned char *key, int key_len, int *do_cop
 	else
 		return NULL;
 
-	if(!retshs) {
-		shared_context_unlock();
-		return NULL;
+	if(retshs) {
+		val_tmp=retshs->data;
+		sess=d2i_SSL_SESSION(NULL, (const unsigned char **)&val_tmp, retshs->data_len);
+
+		shared_session_movefirst(retshs);
 	}
-
-	val_tmp=retshs->data;
-	sess=d2i_SSL_SESSION(NULL, (const unsigned char **)&val_tmp, retshs->data_len);
-
-	shared_session_movefirst(retshs);
 
 	shared_context_unlock();
 
-	return sess;
+#ifdef USE_MEMCACHED
+	if (!sess && OPTIONS.MEMCACHED) {
+		/* No session, try to lookup in memcached */
+		memcached_return_t rc;
+		unsigned int mkeylen;
+		size_t val_len;
+		uint32_t flags;
+		char *memkey = build_memkey(key, key_len, &mkeylen);
+		/* TODO: sync call to memcached_get(), performance problems */
+		val_tmp = (unsigned char *)memcached_get(&shctx->memcached, memkey, mkeylen,
+							 &val_len, &flags, &rc);
+		if (rc != MEMCACHED_SUCCESS)
+			ERR("{cache} memcached_get() failed: %s\n",
+			    memcached_strerror(&shctx->memcached, rc));
+		if (val_tmp) {
+			unsigned char *tmp = val_tmp;
+			if (!(sess = d2i_SSL_SESSION(NULL,
+						     (const unsigned char **)&tmp,
+						     val_len)))
+				ERR("{cache} unable to decode SSL session\n");
+			free(val_tmp);
+		}
+	}
+#endif
 
-	/* Avoid warnings */
-	ssl = NULL;
+	return sess;
 }
 
 void shctx_remove_cb(SSL_CTX *ctx, SSL_SESSION *sess)
@@ -249,31 +307,35 @@ void shctx_remove_cb(SSL_CTX *ctx, SSL_SESSION *sess)
 	else
 		return;
 
-	if(!retshs) {
-		shared_context_unlock();
-		return;
+	if(retshs) {
+		ebmb_delete(&retshs->key);
+		shared_session_movelast(retshs);
 	}
-
-	ebmb_delete(&retshs->key);
-	shared_session_movelast(retshs);
 
 	shared_context_unlock();
 
-	return;
+#ifdef USE_MEMCACHED
+	/* Also delete from memcached */
+	if (OPTIONS.MEMCACHED) {
+		unsigned int keylen;
+		char *memkey = build_memkey(sess->session_id, sess->session_id_length, &keylen);
+		memcached_delete(&shctx->memcached, memkey, keylen, 0);
+	}
+#endif
 
-	/* Avoid warnings */
-	ctx = NULL;
+	return;
 }
 
 /* Init shared memory context if not allocated and set SSL context callbacks
- * size is the max number of stored session 
- * Returns: -1 on alloc failure, size if performs context alloc, and 0 if just perform
+ * size is the max number of stored session. Also initialize optional memcached.
+ * Returns: -1 on failure, 1 if performs initialization, and 0 if just perform
  * callbacks registration */
 int shared_context_init(SSL_CTX *ctx, int size)
 {
 	int ret = 0;
 
 	if (!shctx) {
+		/* Shared memory */
 		int i;
 
 #ifndef USE_SYSCALL_FUTEX
@@ -283,8 +345,10 @@ int shared_context_init(SSL_CTX *ctx, int size)
 
 		shctx = (struct shared_context *)mmap(NULL, sizeof(struct shared_context)+(size*sizeof(struct shared_session)),
 								PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-		if (!shctx)
+		if (!shctx) {
+			ERR("{cache} unable to alloc memory for shared cache.\n");
 			return -1;
+		}
 
 #ifdef USE_SYSCALL_FUTEX
 		shctx->waiters = 0;
@@ -307,7 +371,36 @@ int shared_context_init(SSL_CTX *ctx, int size)
 		cur->n = &shctx->head;
 		shctx->head.p = cur;
 
-		ret = size;
+		ret = 1;
+
+		/* Memcached */
+#ifdef USE_MEMCACHED
+		if (OPTIONS.MEMCACHED) {
+			memcached_server_list_st servers;
+			memcached_return_t rc;
+			memcached_create(&shctx->memcached);
+			memcached_behavior_set(&shctx->memcached,
+					       MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+			memcached_behavior_set(&shctx->memcached,
+					       MEMCACHED_BEHAVIOR_NO_BLOCK, 1);
+			servers = memcached_servers_parse(OPTIONS.MEMCACHED);
+			if (!servers) {
+				ERR("{cache} unable to parse list of memcached servers.\n");
+				return -1;
+			}
+			if ((rc = memcached_server_push(&shctx->memcached,
+							servers)) != MEMCACHED_SUCCESS) {
+				ERR("{cache} unable to add memcached servers to pool: %s\n",
+				    memcached_strerror(&shctx->memcached, rc));
+				return -1;
+			}
+			memcached_server_free(servers);
+
+			/* Also disable tickets */
+			SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
+		}
+#endif
+
 	}
 
 	/* Set callbacks */
