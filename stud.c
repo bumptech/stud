@@ -407,7 +407,7 @@ static void handle_socket_errno(proxystate *ps) {
  * enabled for the upstream socket */
 static void back_read(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
-    int t;
+    int t, u = 0;
     proxystate *ps = (proxystate *)w->data;
     if (ps->want_shutdown) {
         ev_io_stop(loop, &ps->ev_r_down);
@@ -418,7 +418,14 @@ static void back_read(struct ev_loop *loop, ev_io *w, int revents) {
     t = recv(fd, buf, RING_DATA_LEN, 0);
 
     if (t > 0) {
+        if (!ps->want_shutdown && ringbuffer_is_empty(&ps->ring_up)) {
+            /* Try to send directly to client */
+            u = SSL_write(ps->ssl, buf, t);
+            if (u == t) return;
+        }
         ringbuffer_write_append(&ps->ring_up, t);
+        if (u > 0)
+            ringbuffer_read_skip(&ps->ring_up, u);
         if (ringbuffer_is_full(&ps->ring_up))
             ev_io_stop(loop, &ps->ev_r_down);
         safe_enable_io(ps, &ps->ev_w_up);
@@ -616,7 +623,7 @@ static void handle_fatal_ssl_error(proxystate *ps, int err) {
  * and buffer anything we get for writing to the backend */
 static void client_read(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
-    int t;    
+    int t, u = 0;
     proxystate *ps = (proxystate *)w->data;
     if (ps->want_shutdown) {
         ev_io_stop(loop, &ps->ev_r_up);
@@ -625,7 +632,14 @@ static void client_read(struct ev_loop *loop, ev_io *w, int revents) {
     char * buf = ringbuffer_write_ptr(&ps->ring_down);
     t = SSL_read(ps->ssl, buf, RING_DATA_LEN);
     if (t > 0) {
+        /* Try to send data directly to backend */
+        if (!ps->want_shutdown && ringbuffer_is_empty(&ps->ring_down)) {
+            u = send(ps->fd_down, buf, t, MSG_NOSIGNAL);
+            if (u == t) return;
+        }
         ringbuffer_write_append(&ps->ring_down, t);
+        if (u > 0)
+            ringbuffer_read_skip(&ps->ring_down, u);
         if (ringbuffer_is_full(&ps->ring_down))
             ev_io_stop(loop, &ps->ev_r_up);
         safe_enable_io(ps, &ps->ev_w_down);
