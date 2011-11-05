@@ -105,7 +105,11 @@ typedef struct stud_options {
 #endif
     int QUIET;
     int SYSLOG;
+<<<<<<< HEAD
     int DAEMONIZE;
+=======
+    int TCP_KEEPALIVE;
+>>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 } stud_options;
 
 static stud_options OPTIONS = {
@@ -128,8 +132,13 @@ static stud_options OPTIONS = {
     0,            // SHARED_CACHE
 #endif
     0,            // QUIET
+<<<<<<< HEAD
     0,            // SYSLOG    
     0             // DAEMONIZE
+=======
+    0,            // SYSLOG
+    3600          // TCP_KEEPALIVE
+>>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 };
 
 
@@ -165,12 +174,27 @@ typedef struct proxystate {
     int fd_up;            /* Upstream (client) socket */
     int fd_down;          /* Downstream (backend) socket */
 
-    int want_shutdown;    /* Connection is half-shutdown */
+    int want_shutdown:1;  /* Connection is half-shutdown */
+    int handshaked:1;     /* Initial handshake happened */
+    int renegotiation:1;  /* Renegotation is occuring */
 
     SSL *ssl;             /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
 } proxystate;
+
+#define LOG(...)                                        \
+    do {                                                \
+      if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); \
+      if (OPTIONS.SYSLOG) syslog(LOG_INFO, __VA_ARGS__);                    \
+    } while(0)
+
+#define ERR(...)                    \
+    do {                            \
+      fprintf(stderr, __VA_ARGS__); \
+      if (OPTIONS.SYSLOG) syslog(LOG_ERR, __VA_ARGS__); \
+    } while(0)
+
 
 /* set a file descriptor (socket) to non-blocking mode */
 static void setnonblocking(int fd) {
@@ -179,12 +203,28 @@ static void setnonblocking(int fd) {
     assert (ioctl(fd, FIONBIO, &flag) == 0);
 }
 
+/* set a tcp socket to use TCP Keepalive */
+static void settcpkeepalive(int fd) {
+    int optval = 1;
+    socklen_t optlen = sizeof(optval);
+
+    if(setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0) {
+        ERR("Error activating SO_KEEPALIVE on client socket: %s", strerror(errno));
+    }
+
+    optval = OPTIONS.TCP_KEEPALIVE;
+    optlen = sizeof(optval);
+    if(setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen) < 0) {
+        ERR("Error setting TCP_KEEPIDLE on client socket: %s", strerror(errno));
+    }
+}
 
 static void fail(const char* s) {
     perror(s);
     exit(1);
 }
 
+<<<<<<< HEAD
 #define LOG(...)                                        \
     do {                                                \
       if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); \
@@ -199,6 +239,8 @@ static void fail(const char* s) {
 
 #define NULL_DEV "/dev/null"
 
+=======
+>>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 #ifndef OPENSSL_NO_DH
 static int init_dh(SSL_CTX *ctx, const char *cert) {
     DH *dh;
@@ -228,6 +270,21 @@ static int init_dh(SSL_CTX *ctx, const char *cert) {
 }
 #endif /* OPENSSL_NO_DH */
 
+/* This callback function is executed while OpenSSL processes the SSL
+ * handshake and does SSL record layer stuff.  It's used to trap
+ * client-initiated renegotiations.
+ */
+static void info_callback(const SSL *ssl, int where, int ret) {
+    (void)ret;
+    if (where & SSL_CB_HANDSHAKE_START) {
+        proxystate *ps = (proxystate *)SSL_get_app_data(ssl);
+        if (ps->handshaked) {
+            ps->renegotiation = 1;
+            LOG("{core} SSL renegotiation asked by client\n");
+        }
+    }
+}
+
 /* Init library and load specified certificate.
  * Establishes a SSL_ctx, to act as a template for
  * each connection */
@@ -250,6 +307,7 @@ static SSL_CTX * init_openssl() {
 #endif
 
     SSL_CTX_set_options(ctx, ssloptions);
+    SSL_CTX_set_info_callback(ctx, info_callback);
 
     if (SSL_CTX_use_certificate_chain_file(ctx, OPTIONS.CERT_FILE) <= 0) {
         ERR_print_errors_fp(stderr);
@@ -599,6 +657,12 @@ static void end_handshake(proxystate *ps) {
     ev_io_stop(loop, &ps->ev_r_handshake);
     ev_io_stop(loop, &ps->ev_w_handshake);
 
+    /* Disable renegotiation (CVE-2009-3555) */
+    if (ps->ssl->s3) {
+        ps->ssl->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
+    }
+    ps->handshaked = 1;
+
     /* if incoming buffer is not full */
     if (!ringbuffer_is_full(&ps->ring_down))
         safe_enable_io(ps, &ps->ev_r_up);
@@ -668,6 +732,13 @@ static void client_read(struct ev_loop *loop, ev_io *w, int revents) {
     }
     char * buf = ringbuffer_write_ptr(&ps->ring_down);
     t = SSL_read(ps->ssl, buf, RING_DATA_LEN);
+
+    /* Fix CVE-2009-3555. Disable reneg if started by client. */
+    if (ps->renegotiation) {
+        shutdown_proxy(ps, SHUTDOWN_UP);
+        return;
+    }
+
     if (t > 0) {
         ringbuffer_write_append(&ps->ring_down, t);
         if (ringbuffer_is_full(&ps->ring_down))
@@ -740,6 +811,10 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
             ERR("{client} accept() failed; too many open files for this system\n");
             break;
 
+        case 'k':
+            OPTIONS.TCP_KEEPALIVE = atoi(optarg);
+            break;
+
         default:
             assert(errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN);
             break;
@@ -761,6 +836,8 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
 #endif
 
     setnonblocking(client);
+    settcpkeepalive(client);
+
     int back = create_back_socket();
 
     if (back == -1) {
@@ -785,6 +862,8 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->fd_down = back;
     ps->ssl = ssl;
     ps->want_shutdown = 0;
+    ps->handshaked = 0;
+    ps->renegotiation = 0;
     ps->remote_ip = addr;
     ringbuffer_init(&ps->ring_up);
     ringbuffer_init(&ps->ring_down);
@@ -808,6 +887,8 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->ev_r_handshake.data = ps;
     ps->ev_w_handshake.data = ps;
 
+    /* Link back proxystate to SSL state */
+    SSL_set_app_data(ssl, ps);
 }
 
 
@@ -881,6 +962,7 @@ static void usage_fail(const char *prog, const char *msg) {
 "Performance:\n"
 "  -n CORES                 number of worker processes (default is 1)\n"
 "  -B BACKLOG               set listen backlog size (default is 100)\n"
+"  -k SECS                  Change default tcp keepalive on client socket\n"
 #ifdef USE_SHARED_CACHE
 "  -C SHARED_CACHE          set shared cache size in sessions (default no shared cache)\n"
 #endif
@@ -955,7 +1037,7 @@ static void parse_cli(int argc, char **argv) {
 
     while (1) {
         int option_index = 0;
-        c = getopt_long(argc, argv, "hf:b:n:c:e:u:r:B:C:qs",
+        c = getopt_long(argc, argv, "hf:b:n:c:e:u:r:B:C:k:qs",
                 long_options, &option_index);
 
         if (c == -1)
