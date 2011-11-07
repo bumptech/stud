@@ -301,14 +301,14 @@ static void handle_shcupd(struct ev_loop *loop, ev_io *w, int revents) {
     while ( ( r = recv(w->fd, msg, sizeof(msg), 0) ) > 0 ) {
 
         /* msg len must be greater than 1 Byte of data + sig length */
-        if (r < (int)(1+sizeof(shared_secret)))  
+        if (r < (int)(1+SHA_DIGEST_LENGTH))
            continue;
 
         /* compute sig */
-        r -= sizeof(shared_secret);
-        HMAC(EVP_sha384(), shared_secret, sizeof(shared_secret), msg, r, hash, &hash_len);
+        r -= SHA_DIGEST_LENGTH;
+        HMAC(EVP_sha1(), shared_secret, SHA_DIGEST_LENGTH, msg, r, hash, &hash_len);
 
-        if (hash_len != sizeof(shared_secret)) /* should never append */
+        if (hash_len != SHA_DIGEST_LENGTH) /* should never append */
            continue;
 
         /* check sign */
@@ -341,7 +341,7 @@ void shcupd_session_new(unsigned char *msg, unsigned int len, long cdate) {
     len += sizeof(ncdate);
 
     /* add msg sign */
-    HMAC(EVP_sha384(), shared_secret, sizeof(shared_secret),
+    HMAC(EVP_sha1(), shared_secret, SHA_DIGEST_LENGTH,
                      msg, len, msg+len, &hash_len);
     len += hash_len;
 
@@ -645,18 +645,9 @@ static SSL_CTX * init_openssl() {
                 shsess_set_new_cbk(shcupd_session_new);
             }
 
-            /* Set ticket keys */
-            unsigned char ticket_secret[48];
-            unsigned int n, i = 0;
-            memset(ticket_secret, 0, sizeof(ticket_secret));
-            while (i < sizeof(ticket_secret)) {
-                if ((n = sizeof(ticket_secret) - i) > sizeof(shared_secret))
-                    n = sizeof(shared_secret);
-                memcpy(ticket_secret + i, shared_secret, n);
-                i += n;
-            }
+            /* Set ticket keys. Shared secret should be at least 48 bytes. */
             if (SSL_CTX_ctrl(ctx, SSL_CTRL_SET_TLSEXT_TICKET_KEYS,
-                             sizeof(ticket_secret), ticket_secret) != 1) {
+                             sizeof(shared_secret), shared_secret) != 1) {
                 ERR("Unable to set TLS ticket keys\n");
                 exit(1);
             }
