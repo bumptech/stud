@@ -87,7 +87,7 @@ static SSL_CTX *ssl_ctx;
 static ev_io shcupd_listener;
 static int shcupd_socket;
 struct addrinfo *shcupd_peers[MAX_SHCUPD_PEERS+1];
-static unsigned char shared_secret[SHA_DIGEST_LENGTH];
+static unsigned char shared_secret[SHA384_DIGEST_LENGTH];
 
 typedef struct shcupd_peer_opt {
      const char *ip;
@@ -306,7 +306,7 @@ static void handle_shcupd(struct ev_loop *loop, ev_io *w, int revents) {
 
         /* compute sig */
         r -= sizeof(shared_secret);
-        HMAC(EVP_sha1(), shared_secret, sizeof(shared_secret), msg, r, hash, &hash_len);
+        HMAC(EVP_sha384(), shared_secret, sizeof(shared_secret), msg, r, hash, &hash_len);
 
         if (hash_len != sizeof(shared_secret)) /* should never append */
            continue;
@@ -341,7 +341,7 @@ void shcupd_session_new(unsigned char *msg, unsigned int len, long cdate) {
     len += sizeof(ncdate);
 
     /* add msg sign */
-    HMAC(EVP_sha1(), shared_secret, sizeof(shared_secret),
+    HMAC(EVP_sha384(), shared_secret, sizeof(shared_secret),
                      msg, len, msg+len, &hash_len);
     len += hash_len;
 
@@ -352,7 +352,7 @@ void shcupd_session_new(unsigned char *msg, unsigned int len, long cdate) {
     }
 }
 
-/* Compute a sha1 secret from an ASN1 rsa private key */
+/* Compute a sha384 secret from an ASN1 rsa private key */
 static int compute_secret(RSA *rsa, unsigned char *secret) {
     unsigned char *buf,*p;
     unsigned int length;
@@ -367,7 +367,7 @@ static int compute_secret(RSA *rsa, unsigned char *secret) {
 
     i2d_RSAPrivateKey(rsa,&p);
 
-    SHA1(buf, length, secret);
+    SHA384(buf, length, secret);
 
     free(buf);
 
