@@ -313,7 +313,7 @@ void shctx_sess_add(const unsigned char *encsess, unsigned int len, long cdate) 
 	shsess_set_key(shsess, encsess, SSL_MAX_SSL_SESSION_ID_LENGTH);
 
 	/* it returns the already existing node or current node if none, never returns null */
-	shsess = shsess_tree_lookup(shsess);
+	shsess = shsess_tree_insert(shsess);
 
 	/* store into cache and update earlier on session get events */
 	if (cdate)
