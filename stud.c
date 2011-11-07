@@ -641,11 +641,24 @@ static SSL_CTX * init_openssl() {
                 exit(1);
             }
 
-            /* Force tls tickets cause keys differs */
-            SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
-
             if (*shcupd_peers) {
                 shsess_set_new_cbk(shcupd_session_new);
+            }
+
+            /* Set ticket keys */
+            unsigned char ticket_secret[48];
+            unsigned int n, i = 0;
+            memset(ticket_secret, 0, sizeof(ticket_secret));
+            while (i < sizeof(ticket_secret)) {
+                if ((n = sizeof(ticket_secret) - i) > sizeof(shared_secret))
+                    n = sizeof(shared_secret);
+                memcpy(ticket_secret + i, shared_secret, n);
+                i += n;
+            }
+            if (SSL_CTX_ctrl(ctx, SSL_CTRL_SET_TLSEXT_TICKET_KEYS,
+                             sizeof(ticket_secret), ticket_secret) != 1) {
+                ERR("Unable to set TLS ticket keys\n");
+                exit(1);
             }
         }
     }
