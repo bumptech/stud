@@ -211,7 +211,7 @@ int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
 		shared_session_new_cbk(encsess, SSL_MAX_SSL_SESSION_ID_LENGTH+data_len, SSL_SESSION_get_time(sess));
 	}
 
-	return 1; /* leave the session in local cache for reuse */
+	return 0; /* do not increment session reference count */
 }
 
 /* SSL callback used on lookup an existing session cause none found in internal cache */
