@@ -105,11 +105,8 @@ typedef struct stud_options {
 #endif
     int QUIET;
     int SYSLOG;
-<<<<<<< HEAD
     int DAEMONIZE;
-=======
     int TCP_KEEPALIVE;
->>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 } stud_options;
 
 static stud_options OPTIONS = {
@@ -132,13 +129,9 @@ static stud_options OPTIONS = {
     0,            // SHARED_CACHE
 #endif
     0,            // QUIET
-<<<<<<< HEAD
     0,            // SYSLOG    
-    0             // DAEMONIZE
-=======
-    0,            // SYSLOG
+    0,             // DAEMONIZE
     3600          // TCP_KEEPALIVE
->>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 };
 
 
@@ -224,7 +217,6 @@ static void fail(const char* s) {
     exit(1);
 }
 
-<<<<<<< HEAD
 #define LOG(...)                                        \
     do {                                                \
       if (!OPTIONS.QUIET) fprintf(stdout, __VA_ARGS__); \
@@ -239,8 +231,6 @@ static void fail(const char* s) {
 
 #define NULL_DEV "/dev/null"
 
-=======
->>>>>>> 976c3a9a238fd7f46e626eaf9ba561cac43054da
 #ifndef OPENSSL_NO_DH
 static int init_dh(SSL_CTX *ctx, const char *cert) {
     DH *dh;
@@ -810,11 +800,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
         case ENFILE:
             ERR("{client} accept() failed; too many open files for this system\n");
             break;
-
-        case 'k':
-            OPTIONS.TCP_KEEPALIVE = atoi(optarg);
-            break;
-
+        
         default:
             assert(errno == EINTR || errno == EWOULDBLOCK || errno == EAGAIN);
             break;
@@ -1102,6 +1088,10 @@ static void parse_cli(int argc, char **argv) {
                 ERR("listen backlog can not be set to %d\n", OPTIONS.BACKLOG);
                 exit(1);
             }
+            break;
+
+        case 'k':
+            OPTIONS.TCP_KEEPALIVE = atoi(optarg);
             break;
 
 #ifdef USE_SHARED_CACHE
