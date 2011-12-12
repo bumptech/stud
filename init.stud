@@ -11,7 +11,6 @@
 # Short-Description: Start or stop stud (SSL offloader)                                                                                                                                                              
 ### END INIT INFO  
 
-
 #######################################################
 #                      GLOBALS                        #
 #######################################################
@@ -71,6 +70,7 @@ CLIENT_TCP_KEEPALIVE_SEC=""
 # log to syslog?
 SYSLOG="1"
 
+# Enable write-ip?
 WRITE_IP="0"
 
 # Enable SENDPROXY protocol; see
@@ -81,6 +81,7 @@ WRITE_PROXY="0"
 # Alternative OpenSSL library dir
 # Use this if you'd like to run stud with different
 # version of OpenSSL library
+# 
 OPENSSL_LIB_DIR=""
 
 # Semicolon separated list of process affinities; requires
@@ -102,17 +103,24 @@ OPENSSL_LIB_DIR=""
 #                        worker process to CPU7
 PROCESS_AFFINITY=""
 
+# Process priority (integer between -19 to 19)
+# lower value means higher priority
+#
+PROCESS_PRIORITY=""
+
 # ulimit -n value before starting single stud instance
 #
 # Comment out or set to 0 to disable ulimit -n
 # setup.
-# ULIMIT_N="1024000"
+#
+ULIMIT_N=""
 
 # Additional stud command line options
 #
-# NOTE: set only if you really know what your're
+# NOTE: set this only if you really know what your're
 #       doing
-# ADDITIONS_STUD_OPT=""
+# 
+# ADDITIONAL_STUD_OPT=""
 
 # EOF
 }
@@ -137,19 +145,8 @@ msg_err() {
   msg_log "ERROR: $@"
 }
 
-stud_single_instance_start() {
-  name="${1}"
-  if [ -z "${name}" ]; then
-    Error="Unable to stop undefined stud instance."
-    return 1
-  fi
 
-  # check if it is running
-  if stud_single_instance_status "${name}"; then
-    Error="Instance ${name} is already running as pid ${Error}."
-    return 1
-  fi
-
+_real_single_instance_start() {
   # generate stud command line options
   opts="-f ${FRONTEND_ADDRESS}"
   opts="${opts} -b ${BACKEND_ADDRESS}"
@@ -192,8 +189,18 @@ stud_single_instance_start() {
   if [ ! -z "${CERT_FILE}" ] && [ -f "${CERT_FILE}" ] && [ -r "${CERT_FILE}" ]; then
     opts="${opts} ${CERT_FILE}"
   else
-    Error="Invalid or unreadable certificate file '${CERT_FILE}'."
-    return 1
+    die "Invalid or unreadable certificate file '${CERT_FILE}'."
+  fi
+
+  # additional command line options?!
+  if [ ! -z "${ADDITIONAL_STUD_OPT}" ]; then
+    opts="${opts} ${ADDITIONAL_STUD_OPT}"
+  fi
+
+  # priority?!
+  prefix=""
+  if [ ! -z "${PROCESS_PRIORITY}" ]; then
+    prefix="nice -n ${PROCESS_PRIORITY}"
   fi
 
   # set ulimits!
@@ -210,10 +217,7 @@ stud_single_instance_start() {
 
   # start stud!
   msg_log "Starting instance '${INSTANCE_NAME}': ${STUD} ${opts}"
-  # ${STUD} ${opts} >/dev/null 2>&1 </dev/null &
-  #echo ""
-  #echo "OPTZ: ${opts}"
-  ${STUD} ${opts} >/dev/null 2>&1 </dev/null &
+  ${prefix} ${STUD} ${opts} >/dev/null 2>&1 </dev/null &
 
   # remove lib path
   unset LD_LIBRARY_PATH
@@ -221,23 +225,44 @@ stud_single_instance_start() {
   # check invocation
   stud_pid="$!"
   if [ -z "${stud_pid}" ]; then
-    Error="Empty stud pid. This is extremely weird."
-    return 1
+     die "Empty stud pid. This is extremely weird."
   fi
   sleep 0.1 >/dev/null 2>&1
    if ! kill -0 "${stud_pid}" >/dev/null 2>&1; then
-     Error="Stud started successfully as pid ${stud_pid} but died shortly after startup.";
-     return 1
+     die "Stud started successfully as pid ${stud_pid} but died shortly after startup.";
    fi
 
   # write pid file!
-  pid_file_write "${INSTANCE_NAME}" "${stud_pid}"
+  pid_file_write "${INSTANCE_NAME}" "${stud_pid}" || msg_warn "${Error}"
 
   # set affinity!
-  stud_affinity_set "${stud_pid}"
+  stud_affinity_set "${stud_pid}" || die "${Error}"
+}
+
+stud_single_instance_start() {
+  name="${1}"
+  if [ -z "${name}" ]; then
+    Error="Unable to stop undefined stud instance."
+    return 1
+  fi
+
+  # check if it is running
+  if stud_single_instance_status "${name}"; then
+    Error="Instance ${name} is already running as pid ${Error}."
+    return 1
+  fi
+
+  # do the real stuff...
+  Error=""
+  out=`_real_single_instance_start 2>&1`
+  rv=$?
+  if [ "${rv}" != "0" ]; then
+    Error="${out}"
+    rv=1
+  fi
 
   # this is it! :)
-  return 0
+  return $rv
 }
 
 stud_single_instance_stop() {
@@ -300,6 +325,7 @@ stud_single_instance_restart() {
   fi
 
   # start it back...
+  Error=""
   stud_single_instance_start "${name}"
 }
 
@@ -380,7 +406,7 @@ running_instance_list() {
 }
 
 stud_instances_start() {
-  list="${1}"
+  list="$@"
   if [ -z "${list}" ]; then
     list=`stud_config_instances_list`
   fi
@@ -409,7 +435,7 @@ stud_instances_start() {
     fi
   done
 
-  if [ "${num_failed}" = "0" ]; then
+  if [ "${num_failed}" != "0" ]; then
     return 1
   else
     return 0
@@ -417,7 +443,7 @@ stud_instances_start() {
 }
 
 stud_instances_stop() {
-  list="${1}"
+  list="$@"
   if [ -z "${list}" ]; then
     list=`running_instance_list`
   fi
@@ -441,7 +467,7 @@ stud_instances_stop() {
     fi
   done
 
-  if [ "${num_failed}" = "0" ]; then
+  if [ "${num_failed}" != "0" ]; then
     return 1
   else
     return 0
@@ -449,7 +475,7 @@ stud_instances_stop() {
 }
 
 stud_instances_restart() {
-  list="${1}"
+  list="$@"
   if [ -z "${list}" ]; then
     list=`(running_instance_list ; stud_config_instances_list) | tr ' ' '\n' | sort -u | xargs echo`
   fi
@@ -476,7 +502,7 @@ stud_instances_restart() {
     fi
   done
     
-  if [ "${num_failed}" = "0" ]; then
+  if [ "${num_failed}" != "0" ]; then
     return 1
   else
     return 0
@@ -528,7 +554,7 @@ stud_config_instances_list() {
 }
 
 stud_single_instance_config_print() {
-  head -n 117 "$0" | tail -n 88
+  head -n 125 "$0" | tail -n 97
 }
 
 stud_single_instance_config_load() {
@@ -563,7 +589,7 @@ stud_instance_worker_pids() {
 #       $2:     worker number
 stud_instance_worker_pid_by_num() {
   i=0
-  IFS=" "
+  local IFS=" "
   for e in ${1}; do
     let i=i+1
     if [ "${i}" = "${2}" ]; then
@@ -722,17 +748,17 @@ done
 case $1 in
   start)
     shift
-    stud_instances_start $@
+    stud_instances_start "$@"
     ;;
 
   stop)
     shift
-    stud_instances_stop $@
+    stud_instances_stop "$@"
     ;;
 
   restart)
     shift
-    stud_instances_restart $@
+    stud_instances_restart "$@"
     ;;
 
   status)
