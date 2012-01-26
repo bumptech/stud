@@ -1,2 +1,5 @@
 conf*
 ebtree*
+Makefile
+stud
+*.o

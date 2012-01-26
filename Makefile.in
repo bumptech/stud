@@ -2,10 +2,11 @@
 #
 # USE_SHARED_CACHE   :   enable/disable a shared session cache (disabled by default)
 
-DESTDIR =
-PREFIX  = /usr/local
-BINDIR  = $(PREFIX)/bin
-MANDIR  = $(PREFIX)/share/man
+prefix  = @prefix@
+exec_prefix = @exec_prefix@
+datarootdir = @datarootdir@
+bindir  = @bindir@
+mandir  = @mandir@
 
 CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE
 LDFLAGS = -lssl -lcrypto -lev
@@ -35,10 +36,10 @@ stud: $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 install: $(ALL)
-	install -d $(DESTDIR)$(BINDIR)
-	install stud $(DESTDIR)$(BINDIR)
-	install -d $(DESTDIR)$(MANDIR)/man8
-	install -m 644 stud.8 $(DESTDIR)$(MANDIR)/man8
+	install -d $(bindir)
+	install stud $(bindir)
+	install -d $(mandir)/man8
+	install -m 644 stud.8 $(mandir)/man8
 
 clean:
 	rm -f stud $(OBJS)
