@@ -7,9 +7,16 @@ PREFIX  = /usr/local
 BINDIR  = $(PREFIX)/bin
 MANDIR  = $(PREFIX)/share/man
 
-CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE
-LDFLAGS = -lssl -lcrypto -lev
+CFLAGS  += -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE
+LDFLAGS += -lssl -lcrypto -lev
 OBJS    = stud.o ringbuffer.o
+
+UNAME := $(shell uname)
+ifeq ($(UNAME),SunOS)
+    # need __EXTENSIONS__ to get signal handling and getopt
+    CFLAGS += -D__EXTENSIONS__
+    LDFLAGS += -lnsl -lsocket
+endif
 
 all: realall
 
