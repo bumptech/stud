@@ -236,7 +236,14 @@ typedef struct proxystate {
 static void setnonblocking(int fd) {
     int flag = 1;
 
+#if defined(O_NONBLOCK)
+    /* O_NONBLOCK is more portable and POSIX-standard */
+    assert (ioctl(fd, O_NONBLOCK, &flag) == 0);
+#elif defined(FIONBIO)
     assert (ioctl(fd, FIONBIO, &flag) == 0);
+#else
+# error O_NONBLOCK and FIONBIO are both undefined for this platform
+#endif
 }
 
 /* set a tcp socket to use TCP Keepalive */
