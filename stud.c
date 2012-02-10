@@ -256,11 +256,13 @@ static void settcpkeepalive(int fd) {
         ERR("Error activating SO_KEEPALIVE on client socket: %s", strerror(errno));
     }
 
+#ifdef USE_KEEPIDLE
     optval = OPTIONS.TCP_KEEPALIVE_TIME;
     optlen = sizeof(optval);
     if(setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen) < 0) {
         ERR("Error setting TCP_KEEPIDLE on client socket: %s", strerror(errno));
     }
+#endif
 }
 
 static void fail(const char* s) {
@@ -1301,7 +1303,9 @@ static void usage_fail(const char *prog, const char *msg) {
 "Performance:\n"
 "  -n CORES                 number of worker processes (default is 1)\n"
 "  -B BACKLOG               set listen backlog size (default is 100)\n"
+#ifdef USE_KEEPIDLE
 "  -k SECS                  Change default tcp keepalive on client socket\n"
+#endif
 #ifdef USE_SHARED_CACHE
 "  -C SHARED_CACHE          set shared cache size in sessions (default no shared cache)\n"
 #endif
@@ -1556,9 +1560,11 @@ static void parse_cli(int argc, char **argv) {
             OPTIONS.SYSLOG = 1;
             break;
 
+#ifdef USE_KEEPIDLE
         case 'k':
             OPTIONS.TCP_KEEPALIVE_TIME = atoi(optarg);
             break;
+#endif
 
         default:
             usage_fail(prog, NULL);

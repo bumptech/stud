@@ -12,10 +12,13 @@ LDFLAGS += -lssl -lcrypto -lev
 OBJS    = stud.o ringbuffer.o
 
 UNAME := $(shell uname)
+
 ifeq ($(UNAME),SunOS)
     # need __EXTENSIONS__ to get signal handling and getopt
     CFLAGS += -D__EXTENSIONS__
     LDFLAGS += -lnsl -lsocket
+else
+    CFLAGS += -DUSE_KEEPIDLE
 endif
 
 all: realall
