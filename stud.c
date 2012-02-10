@@ -234,12 +234,13 @@ typedef struct proxystate {
 
 /* set a file descriptor (socket) to non-blocking mode */
 static void setnonblocking(int fd) {
-    int flag = 1;
-
+    int flag;
 #if defined(O_NONBLOCK)
     /* O_NONBLOCK is more portable and POSIX-standard */
-    assert (ioctl(fd, O_NONBLOCK, &flag) == 0);
+    flag = O_NONBLOCK;
+    assert (fcntl(fd, F_SETFL, flag) == 0);
 #elif defined(FIONBIO)
+    flag = 1;
     assert (ioctl(fd, FIONBIO, &flag) == 0);
 #else
 # error O_NONBLOCK and FIONBIO are both undefined for this platform
