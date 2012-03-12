@@ -97,13 +97,21 @@ CLIENT_TCP_KEEPALIVE_SEC=""
 # log to syslog?
 SYSLOG="1"
 
-# Enable write-ip?
+# Write 1 octet with the IP family followed by the IP
+# address in 4 (IPv4) or 16 (IPv6) octets little-endian
+# to backend before the actual data
 WRITE_IP="0"
 
-# Enable SENDPROXY protocol; see
+# Enable writing HAProxy protocol line to the backend before
+# actual data, see
 # http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
 # for additional info
 WRITE_PROXY="0"
+
+# Enable reading HAProxy protocol line before actual data.
+# This address will be sent to the backend if one of
+# WRITE_IP or WRITE_PROXY is specified.
+READ_PROXY="0"
 
 # Alternative OpenSSL library dir
 # Use this if you'd like to run stud with different
@@ -237,6 +245,7 @@ _real_single_instance_start() {
 
   test "${WRITE_IP}" = "1" && opts="${opts} --write-ip"
   test "${WRITE_PROXY}" = "1" && opts="${opts} --write-proxy"
+  test "${READ_PROXY}" = "1" && opts="${opts} --read-proxy"
 
   if [ ! -z "${CERT_FILE}" ] && [ -f "${CERT_FILE}" ] && [ -r "${CERT_FILE}" ]; then
     opts="${opts} ${CERT_FILE}"

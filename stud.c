@@ -141,10 +141,11 @@ typedef struct proxystate {
     int want_shutdown:1;  /* Connection is half-shutdown */
     int handshaked:1;     /* Initial handshake happened */
     int renegotiation:1;  /* Renegotation is occuring */
+    int read_proxy_line:1;/* Read the HAProxy line from upstream */
 
     SSL *ssl;             /* OpenSSL SSL state */
 
-    struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
+    struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` or HAProxy line */
 } proxystate;
 
 #define LOG(...)                                        \
@@ -841,14 +842,59 @@ static void back_write(struct ev_loop *loop, ev_io *w, int revents) {
 
 static void start_handshake(proxystate *ps, int err);
 
+static void write_proxy_or_ip(proxystate *ps) {
+    char tcp6_address_string[INET6_ADDRSTRLEN];
+    size_t written = 0;
+    if (CONFIG->WRITE_PROXY_LINE) {
+        char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
+        assert(ps->remote_ip.ss_family == AF_INET ||
+            ps->remote_ip.ss_family == AF_INET6);
+        if(ps->remote_ip.ss_family == AF_INET) {
+            struct sockaddr_in* addr = (struct sockaddr_in*)&ps->remote_ip;
+            written = snprintf(ring_pnt,
+                RING_DATA_LEN,
+                tcp_proxy_line,
+                "TCP4",
+                inet_ntoa(addr->sin_addr),
+                ntohs(addr->sin_port));
+        }
+        else if (ps->remote_ip.ss_family == AF_INET6) {
+            struct sockaddr_in6* addr = (struct sockaddr_in6*)&ps->remote_ip;
+            inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
+            written = snprintf(ring_pnt,
+                RING_DATA_LEN,
+                tcp_proxy_line,
+                "TCP6",
+                tcp6_address_string,
+                ntohs(addr->sin6_port));
+        }
+        ringbuffer_write_append(&ps->ring_down, written);
+        ev_io_start(loop, &ps->ev_w_down);
+    }
+    else if (CONFIG->WRITE_IP_OCTET) {
+        char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
+        assert(ps->remote_ip.ss_family == AF_INET ||
+            ps->remote_ip.ss_family == AF_INET6);
+        *ring_pnt++ = (unsigned char) ps->remote_ip.ss_family;
+        if (ps->remote_ip.ss_family == AF_INET6) {
+            memcpy(ring_pnt, &((struct sockaddr_in6 *) &ps->remote_ip)
+                ->sin6_addr.s6_addr, 16U);
+            ringbuffer_write_append(&ps->ring_down, 1U + 16U);
+        } else {
+            memcpy(ring_pnt, &((struct sockaddr_in *) &ps->remote_ip)
+                ->sin_addr.s_addr, 4U);
+            ringbuffer_write_append(&ps->ring_down, 1U + 4U);
+        }
+        ev_io_start(loop, &ps->ev_w_down);
+    }
+}
+
 /* Continue/complete the asynchronous connect() before starting data transmission
  * between front/backend */
 static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
     int t;
     proxystate *ps = (proxystate *)w->data;
-    char tcp6_address_string[INET6_ADDRSTRLEN];
-    size_t written = 0;
     t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
     if (!t || errno == EISCONN || !errno) {
         /* INIT */
@@ -857,47 +903,9 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
         ev_io_init(&ps->ev_w_down, back_write, ps->fd_down, EV_WRITE);
         start_handshake(ps, SSL_ERROR_WANT_READ); /* for client-first handshake */
         ev_io_start(loop, &ps->ev_r_down);
-        if (CONFIG->WRITE_PROXY_LINE) {
-            char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
-            assert(ps->remote_ip.ss_family == AF_INET ||
-		   ps->remote_ip.ss_family == AF_INET6);
-	    if(ps->remote_ip.ss_family == AF_INET) {
-	      struct sockaddr_in* addr = (struct sockaddr_in*)&ps->remote_ip;
-	      written = snprintf(ring_pnt,
-				 RING_DATA_LEN,
-				 tcp_proxy_line,
-				 "TCP4",
-				 inet_ntoa(addr->sin_addr),
-				 ntohs(addr->sin_port));
-	    }
-	    else if (ps->remote_ip.ss_family == AF_INET6) {
-	      struct sockaddr_in6* addr = (struct sockaddr_in6*)&ps->remote_ip;
-	      inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
-	      written = snprintf(ring_pnt,
-				 RING_DATA_LEN,
-				 tcp_proxy_line,
-				 "TCP6",
-				 tcp6_address_string,
-				 ntohs(addr->sin6_port));
-	    }   
-            ringbuffer_write_append(&ps->ring_down, written);
-            ev_io_start(loop, &ps->ev_w_down);
-        }
-        else if (CONFIG->WRITE_IP_OCTET) {
-            char *ring_pnt = ringbuffer_write_ptr(&ps->ring_down);
-            assert(ps->remote_ip.ss_family == AF_INET ||
-                   ps->remote_ip.ss_family == AF_INET6);
-            *ring_pnt++ = (unsigned char) ps->remote_ip.ss_family;
-            if (ps->remote_ip.ss_family == AF_INET6) {
-                memcpy(ring_pnt, &((struct sockaddr_in6 *) &ps->remote_ip)
-                       ->sin6_addr.s6_addr, 16U);
-                ringbuffer_write_append(&ps->ring_down, 1U + 16U);
-            } else {
-                memcpy(ring_pnt, &((struct sockaddr_in *) &ps->remote_ip)
-                       ->sin_addr.s_addr, 4U);
-                ringbuffer_write_append(&ps->ring_down, 1U + 4U);
-            }
-            ev_io_start(loop, &ps->ev_w_down);
+        if (!CONFIG->READ_PROXY_LINE) {
+            /* if not reading HAProxy line, write this information immediately */
+            write_proxy_or_ip(ps);
         }
     }
     else if (errno == EINPROGRESS || errno == EINTR || errno == EALREADY) {
@@ -942,6 +950,92 @@ static void end_handshake(proxystate *ps) {
         ev_io_start(loop, &ps->ev_w_up);
 }
 
+#define HAPROXY_MIN_SIZE 32
+#define HAPROXY_MAX_SIZE 120
+
+static int parse_haproxy_line(proxystate *ps, const char *buf) {
+    int t;
+    int protocol;
+    int af;
+    // buf is at most HAPROXY_MAX_SIZE+1 bytes and terminated, so it is safe to
+    // sscanf into buffers of that size or larger
+    char addr1[HAPROXY_MAX_SIZE+1];
+    char addr2[HAPROXY_MAX_SIZE+1];
+    short int port1;
+    short int port2;
+    t = sscanf(buf, "PROXY TCP%d %s %s %hu %hu", &protocol, addr1, addr2, &port1, &port2);
+    if (t != 5)
+        return 1;
+    if (protocol == 4) {
+        struct sockaddr_in* addr = (struct sockaddr_in*)&ps->remote_ip;
+        af = AF_INET;
+        if (!inet_pton(af, addr1, &addr->sin_addr)) {
+            return 1;
+        }
+        addr->sin_port = htons(port1);
+        ps->remote_ip.ss_family = af;
+    } else if (protocol == 6) {
+        struct sockaddr_in6* addr = (struct sockaddr_in6*)&ps->remote_ip;
+        af = AF_INET6;
+        if (!inet_pton(af, addr1, &addr->sin6_addr)) {
+            return 1;
+        }
+        addr->sin6_port = htons(port1);
+        ps->remote_ip.ss_family = af;
+    } else {
+        return 1;
+    }
+    return 0;
+}
+
+static int client_handshake_haproxy(ev_io *w) {
+    // Possible issue: if TCP fragment size is smaller than the length of the
+    // HAProxy PROXY line (at most 120 bytes), then this will fail.  Since this
+    // only applies to internal packets between HAProxy and stud, this should be
+    // acceptable and avoidable.
+    proxystate *ps = (proxystate *)w->data;
+    if (!ps->read_proxy_line) {
+        int fd = w->fd;
+        int len=0;
+        char buf[HAPROXY_MAX_SIZE+1];
+        int t = recv(fd, buf, HAPROXY_MIN_SIZE, 0);
+        int terminated = 0;
+        if (t == HAPROXY_MIN_SIZE) {
+            // we read the first data, how much more is needed
+            len = t;
+            // This seems inefficient, but besides ugly partial parsing to guess
+            // how many more bytes are needed, I am unsure what else to do.
+            // Perhaps there's some way to just read all that is waiting and
+            // push the remainder into the SSL state's buffer somehow?
+            while (t>0 && len < HAPROXY_MAX_SIZE && !terminated) {
+                t = recv(fd, &buf[len], 1, 0);
+                len += t;
+                terminated = (buf[len-2]=='\r' && buf[len-1]=='\n');
+            }
+        }
+        if (terminated) {
+            buf[len] = 0; // terminate
+            if (parse_haproxy_line(ps, buf)) {
+                LOG("{client} Error parsing HAProxy line\n");
+                shutdown_proxy(ps, SHUTDOWN_DOWN);
+                return 1;
+            }
+            ps->read_proxy_line = 1;
+            write_proxy_or_ip(ps);
+        } else if (t == 0) {
+            LOG("{client} Connection closed (in HAProxy read)\n");
+            shutdown_proxy(ps, SHUTDOWN_DOWN);
+            return 1;
+        } else {
+            // t == -1 or t < initial read size
+            LOG("{client} Read insufficient bytes for HAProxy read\n");
+            shutdown_proxy(ps, SHUTDOWN_DOWN);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* The libev I/O handler during the OpenSSL handshake phase.  Basically, just
  * let OpenSSL do what it likes with the socket and obey its requests for reads
  * or writes */
@@ -949,6 +1043,13 @@ static void client_handshake(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
     int t;
     proxystate *ps = (proxystate *)w->data;
+
+    if (CONFIG->READ_PROXY_LINE) {
+        if (client_handshake_haproxy(w)) {
+            // error
+            return;
+        }
+    }
 
     t = SSL_do_handshake(ps->ssl);
     if (t == 1) {
@@ -1129,6 +1230,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->want_shutdown = 0;
     ps->handshaked = 0;
     ps->renegotiation = 0;
+    ps->read_proxy_line = 0;
     ps->remote_ip = addr;
     ringbuffer_init(&ps->ring_up);
     ringbuffer_init(&ps->ring_down);

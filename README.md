@@ -125,8 +125,13 @@ Detail about the entire set of options can be found by invoking `stud -h`:
                                  address in 4 (IPv4) or 16 (IPv6) octets little-endian
                                  to backend before the actual data
                                  (Default: off)
-          --write-proxy          Write HaProxy's PROXY (IPv4 or IPv6) protocol line
-                                 before actual data
+          --write-proxy          Write HAProxy's PROXY (IPv4 or IPv6) protocol line
+                                 to the backend before actual data
+                                 (Default: off)
+          --read-proxy           Read HAProxy's PROXY (IPv4 or IPv6) protocol line
+                                 before actual data.  This address will be sent to
+                                 the backend if one of --write-ip or --write-proxy
+                                 is specified.
                                  (Default: off)
 
       -t  --test                 Test configuration and exit
