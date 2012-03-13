@@ -79,7 +79,8 @@ static char tmp_buf[150];
 #include <openssl/ssl.h>
 SSL_CTX * init_openssl();
 
-static void config_error_set (char *fmt, ...) {
+static void __attribute__ ((format (printf, 1, 2)))
+config_error_set (char *fmt, ...) {
   memset(error_buf, '\0', sizeof(error_buf));
   va_list args;
   va_start(args, fmt);
@@ -91,7 +92,8 @@ char * config_error_get (void) {
   return error_buf;
 }
 
-void config_die (char *fmt, ...) {
+static void __attribute__ ((format (printf, 1, 2)))
+config_die (char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vfprintf(stderr, fmt, args);
@@ -595,7 +597,7 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
         r = 0;
       } else {
         if (! S_ISDIR(st.st_mode)) {
-          config_error_set("Bad chroot directory '%s': Not a directory.", v, strerror(errno));
+          config_error_set("Bad chroot directory '%s': Not a directory.", v);
           r = 0;
         } else {
           config_assign_str(&cfg->CHROOT, v);
@@ -690,7 +692,7 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_PEM_FILE) == 0) {
     if (v != NULL && strlen(v) > 0) {
       if (stat(v, &st) != 0) {
-        config_error_set("Unable to stat x509 certificate PEM file '%s': ", v, strerror(errno));
+        config_error_set("Unable to stat x509 certificate PEM file '%s': %s", v, strerror(errno));
         r = 0;
       }
       else if (! S_ISREG(st.st_mode)) {
