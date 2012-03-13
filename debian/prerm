@@ -9,7 +9,7 @@ case "$1" in
 		service stud stop
 
 		;;
-	
+
 	disappear)
 		;;
 

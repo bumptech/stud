@@ -33,9 +33,9 @@ case $1 in
 esac
 
 if service stud status >/dev/null 2>&1; then
-	echo 
+	echo
 	echo "              !!!! WARNING !!!!"
-	echo 
+	echo
 	echo "stud is running, you should restart it."
 	echo
 fi
