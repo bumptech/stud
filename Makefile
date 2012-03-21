@@ -7,9 +7,10 @@ PREFIX  = /usr/local
 BINDIR  = $(PREFIX)/bin
 MANDIR  = $(PREFIX)/share/man
 
-CFLAGS  += -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE
-LDFLAGS += -lssl -lcrypto -lev
+CFLAGS  += -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE -I$(PREFIX)/include
+LDFLAGS += -lssl -lcrypto -lev -L$(PREFIX)/lib
 OBJS    = stud.o ringbuffer.o
+OBJS    = stud.o ringbuffer.o configuration.o
 
 UNAME := $(shell uname)
 
@@ -36,6 +37,11 @@ ebtree:
 		echo "*** Download libebtree at http://1wt.eu/tools/ebtree/" ; \
 		echo "*** Untar it and make a link named 'ebtree' to point on it"; \
 		exit 1 )
+endif
+
+# No config file support?
+ifneq ($(NO_CONFIG_FILE),)
+CFLAGS += -DNO_CONFIG_FILE
 endif
 
 ALL += stud

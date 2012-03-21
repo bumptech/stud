@@ -85,36 +85,62 @@ The only required argument is a path to a PEM file that contains the certificate
 
 Detail about the entire set of options can be found by invoking `stud -h`:
 
-    Encryption Methods:
-      --tls                    TLSv1 (default)
-      --ssl                    SSLv3 (implies no TLSv1)
-      -c CIPHER_SUITE          set allowed ciphers (default is OpenSSL defaults)
-      -e ENGINE                set OpenSSL engine
+    CONFIGURATION:
 
-    Socket:
-      -b HOST,PORT             backend [connect] (default is "127.0.0.1,8000")
-      -f HOST,PORT             frontend [bind] (default is "*,8443")
+            --config=FILE      Load configuration from specified file.
+            --default-config   Prints default configuration to stdout.
 
-    Performance:
-      -n CORES                 number of worker processes (default is 1)
-      -B BACKLOG               set listen backlog size (default is 100)
+    ENCRYPTION METHODS:
 
-    Security:
-      -r PATH                  chroot
-      -u USERNAME              set gid/uid after binding the socket
+          --tls                   TLSv1 (default)
+          --ssl                   SSLv3 (implies no TLSv1)
+      -c  --ciphers=SUITE         Sets allowed ciphers (Default: "")
+      -e  --ssl-engine=NAME       Sets OpenSSL engine (Default: "")
+      -O  --prefer-server-ciphers Prefer server list order
 
-    Logging:
-      -q                       be quiet; emit only error messages
-      -s                       send log message to syslog in addition to stderr/stdout
+    SOCKET:
 
-    Special:
-      --write-ip               write 1 octet with the IP family followed by the IP
-                               address in 4 (IPv4) or 16 (IPv6) octets little-endian
-                               to backend before the actual data
-      --write-proxy            write HaProxy's PROXY (IPv4 or IPv6) protocol line
-                               before actual data
+      -b  --backend=HOST,PORT     Backend [connect] (default is "[127.0.0.1]:8000")
+      -f  --frontend=HOST,PORT    Frontend [bind] (default is "[*]:8443")
 
-`stud` uses no configuration file.
+    PERFORMANCE:
+
+      -n  --workers=NUM          Number of worker processes (Default: 1)
+      -B  --backlog=NUM          Set listen backlog size (Default: 100)
+      -k  --keepalive=SECS       TCP keepalive on client socket (Default: 3600)
+
+    SECURITY:
+
+      -r  --chroot=DIR           Sets chroot directory (Default: "")
+      -u  --user=USER            Set uid/gid after binding the socket (Default: "")
+      -g  --group=GROUP          Set gid after binding the socket (Default: "")
+
+    LOGGING:
+      -q  --quiet                Be quiet; emit only error messages
+      -s  --syslog               Send log message to syslog in addition to stderr/stdout
+      --syslog-facility=FACILITY Syslog facility to use (Default: "daemon")
+
+    OTHER OPTIONS:
+          --daemon               Fork into background and become a daemon (Default: off)
+          --write-ip             Write 1 octet with the IP family followed by the IP
+                                 address in 4 (IPv4) or 16 (IPv6) octets little-endian
+                                 to backend before the actual data
+                                 (Default: off)
+          --write-proxy          Write HaProxy's PROXY (IPv4 or IPv6) protocol line
+                                 before actual data
+                                 (Default: off)
+
+      -t  --test                 Test configuration and exit
+      -V  --version              Print program version and exit
+      -h  --help                 This help message
+
+Configuration File
+------------------
+
+Stud can also use a configuration file that supports all the same options as the
+command-line arguments. You can use `stud --default-config` to
+generate the default configuration on stdout; then, customize your configuration and
+pass it to `stud --config=FILE`.
 
 Serving HTTPS
 -------------
@@ -136,21 +162,12 @@ Authors
 
 `stud` was originally written by Jamie Turner (@jamwt) and is maintained
 by the Bump (http://bu.mp) server team.  It currently (12/11) provides
-server-side TLS termination for over 65 million Bump users.
+server-side TLS termination for over 85 million Bump users.
 
-Contributors:
+Special thanks to Colin Percival (@cperciva) for an early security
+audit and code review.
 
-    * Colin Percival @cperciva      -- early security audit and code review
-    * Frank DENIS @jedisct1         -- port to BSD, IPv6 support, various fixes
-    * Denis Bilenko                 -- HAProxy PROXY protocol support, chroot/setuid
-    * Joe Damato                    -- Diffie-Hellman parameter loading
-    * Benjamin Pineau               -- Chained cert loading, various fixes,
-                                       performance tweaks
-    * Carl Perry/Dreamhost          -- IPv6 PROXY support
-    * Emeric Brun/Exceliance        -- Session resumption and shared-memory
-                                       session cache
-    * Vladimir Dronnikov            -- Logging cleanup
-    * James Golick/BitLove Inc.     -- SIGPIPE fixes and child-reaping
-    * Joe Williams                  -- Syslog support
-    * Jason Cook                    -- SSL option tweaks (performance)
-    * Artur Bergman                 -- Socket tweaks (performance)
+Finally, thank you to all the stud contributors, who have taken the
+program from a good start to a solid project:
+
+https://github.com/bumptech/stud/contributors
