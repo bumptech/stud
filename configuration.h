@@ -51,9 +51,9 @@ struct __stud_config {
     char *SHCUPD_MCASTIF;
     char *SHCUPD_MCASTTTL;
 #endif
-    int QUIET;
     int SYSLOG;
     int SYSLOG_FACILITY;
+    int LOG_LEVEL;
     int TCP_KEEPALIVE_TIME;
     int DAEMONIZE;
     int PREFER_SERVER_CIPHERS;
