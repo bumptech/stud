@@ -1362,6 +1362,14 @@ void init_signals() {
     }
 }
 
+int pid_file_write (char *path, pid_t pid) {
+    FILE *fd = fopen(path, "w");
+    if (fd == NULL) return 0;
+    if (fprintf(fd, "%d\n", pid) < 1) return 0;
+    if (fclose(fd) != 0) return 0;
+    return 1;
+}
+
 void daemonize () {
     /* go to root directory */
     if (chdir("/") != 0) {
@@ -1376,7 +1384,14 @@ void daemonize () {
 
     /* am i the parent? */
     if (pid != 0) {
-        printf("{core} Daemonized as pid %d.", pid);
+        // write pid file
+        if (! pid_file_write(CONFIG->PID_FILE, pid)) {
+            int e = errno;
+            kill(pid, SIGKILL); // kill the child
+            fprintf(stderr, "Unable to write pid file %s: %s\n", CONFIG->PID_FILE, strerror(e));
+            exit(1);
+        }
+        printf("{core} Daemonized as pid %d.\n", pid);
         exit(0);
     }
 

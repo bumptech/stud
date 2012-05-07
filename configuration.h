@@ -6,6 +6,7 @@
  */
 
 #include <sys/types.h>
+#include <limits.h>
 
 #ifdef USE_SHARED_CACHE
   #include "shctx.h"
@@ -57,6 +58,7 @@ struct __stud_config {
     int TCP_KEEPALIVE_TIME;
     int DAEMONIZE;
     int PREFER_SERVER_CIPHERS;
+    char PID_FILE[PATH_MAX];
 };
 
 typedef struct __stud_config stud_config;

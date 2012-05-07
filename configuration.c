@@ -53,6 +53,7 @@
 #define CFG_WRITE_PROXY "write-proxy"
 #define CFG_PEM_FILE "pem-file"
 #define CFG_INSTANCE_NAME "instance-name"
+#define CFG_PID_FILE "pid-file"
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -76,6 +77,9 @@
 #endif
 // END: configuration parameters
 
+#define PID_DIR "/var/run"
+#define PID_DIR_NONPRIVILEGED "/tmp"
+
 static char var_buf[CONFIG_BUF_SIZE];
 static char val_buf[CONFIG_BUF_SIZE];
 static char error_buf[CONFIG_BUF_SIZE];
@@ -95,6 +99,30 @@ static void config_error_set (char *fmt, ...) {
 
 char * config_error_get (void) {
   return error_buf;
+}
+
+char * pid_dir_get () {
+    if (getuid() == 0) {
+        return PID_DIR;
+    } else {
+        char *td = getenv("TMPDIR");
+    return (td == NULL || strlen(td) < 1) ?
+        PID_DIR_NONPRIVILEGED :
+        td;
+  }
+}
+
+int config_param_val_pid_file (char *str, char *dst) {
+  int len = (str == NULL) ? 0 : strlen(str);
+  memset(dst, '\0', PATH_MAX);
+  if (len < 1) {
+    char *name = stud_instance_name(NULL);
+    if (name == NULL || strlen(name) < 1) name = "stud";
+    snprintf(dst, PATH_MAX, "%s/%s.pid", pid_dir_get(), name);
+  } else {
+    strncat(dst, str, PATH_MAX);
+  }
+  return 1;
 }
 
 stud_config * config_new (void) {
@@ -141,6 +169,8 @@ stud_config * config_new (void) {
   r->TCP_KEEPALIVE_TIME = 3600;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
+
+  config_param_val_pid_file(NULL, r->PID_FILE);
 
   return r;
 }
@@ -664,7 +694,6 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   }
   else if (strcmp(k, CFG_LOG_LEVEL) == 0) {
     cfg->LOG_LEVEL = log_str2level(v);
-    printf("Parsing: %s => %s => %d\n", k, v, cfg->LOG_LEVEL);
   }
   else if (strcmp(k, CFG_DAEMON) == 0) {
     r = config_param_val_bool(v, &cfg->DAEMONIZE);
@@ -690,6 +719,9 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   }
   else if (strcmp(k, CFG_INSTANCE_NAME) == 0) {
     stud_instance_name(v);
+  }
+  else if (strcmp(k, CFG_PID_FILE) == 0) {
+    r = config_param_val_pid_file(v, cfg->PID_FILE);
   }
   else {
     fprintf(
@@ -740,6 +772,7 @@ int config_file_parse (char *file, stud_config *cfg) {
     }
     str_trim(bn);
     stud_instance_name(bn);
+    config_param_val_pid_file(NULL, cfg->PID_FILE);
     free(bn);
   }
 
@@ -920,6 +953,8 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "\n");
   fprintf(out, "OTHER OPTIONS:\n");
   fprintf(out, "      --daemon               Fork into background and become a daemon (Default: %s)\n", config_disp_bool(cfg->DAEMONIZE));
+  fprintf(out, "  -p  --pid-file=FILE        Save daemon's pid to specified file (Default: \"%s\")\n", config_disp_str(cfg->PID_FILE));
+  fprintf(out, "\n");
   fprintf(out, "      --write-ip             Write 1 octet with the IP family followed by the IP\n");
   fprintf(out, "                             address in 4 (IPv4) or 16 (IPv6) octets little-endian\n");
   fprintf(out, "                             to backend before the actual data\n");
@@ -1096,6 +1131,13 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, FMT_STR, CFG_DAEMON, config_disp_bool(cfg->DAEMONIZE));
   fprintf(fd, "\n");
 
+  fprintf(fd, "# Pid file\n");
+  fprintf(fd, "# NOTE: Pid file is automatically computed from instance name.\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, "# %s = \"%s\"\n", CFG_PID_FILE, config_disp_str(cfg->PID_FILE));
+  fprintf(fd, "\n");
+
   fprintf(fd, "# Report client address by writing IP before sending data\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# NOTE: This option is mutually exclusive with option %s.\n", CFG_WRITE_PROXY);
@@ -1160,6 +1202,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_DAEMON, 0, &cfg->DAEMONIZE, 1 },
     { CFG_WRITE_IP, 0, &cfg->WRITE_IP_OCTET, 1 },
     { CFG_WRITE_PROXY, 0, &cfg->WRITE_PROXY_LINE, 1 },
+    { CFG_PID_FILE, 1, NULL, 'p' },
  
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1171,7 +1214,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     int option_index = 0;
     c = getopt_long(
       argc, argv,
-      "c:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qstVh",
+      "c:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qsp:tVh",
       long_options, &option_index
     );
 
@@ -1253,6 +1296,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case 's':
         config_param_validate(CFG_SYSLOG, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case 'p':
+        config_param_validate(CFG_PID_FILE, optarg, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;
