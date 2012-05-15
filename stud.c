@@ -1323,6 +1323,11 @@ static void sigh_terminate (int __attribute__ ((unused)) signo) {
             }
         }
         /* log_notice("Shutdown complete."); */
+
+	// remove pid file
+	if (CONFIG->DAEMONIZE && strlen(CONFIG->PID_FILE) > 0) {
+            unlink(CONFIG->PID_FILE);
+	}
     }
 
     /* this is it, we're done... */
