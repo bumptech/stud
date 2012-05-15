@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <libgen.h>
 #include <ctype.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -19,8 +20,10 @@
 #include <sys/stat.h>
 #include <syslog.h>
 
+#include "stud.h"
 #include "configuration.h"
 #include "version.h"
+#include "log.h"
 
 #define ADDR_LEN 150
 #define PORT_LEN 6
@@ -42,10 +45,15 @@
 #define CFG_SYSLOG "syslog"
 #define CFG_SYSLOG_FACILITY "syslog-facility"
 #define CFG_PARAM_SYSLOG_FACILITY 11015
+#define CFG_LOG_LEVEL "log-level"
+#define CFG_PARAM_LOG_LEVEL 11016
+#define CFG_PARAM_INSTANCE_NAME 11017
 #define CFG_DAEMON "daemon"
 #define CFG_WRITE_IP "write-ip"
 #define CFG_WRITE_PROXY "write-proxy"
 #define CFG_PEM_FILE "pem-file"
+#define CFG_INSTANCE_NAME "instance-name"
+#define CFG_PID_FILE "pid-file"
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -69,6 +77,9 @@
 #endif
 // END: configuration parameters
 
+#define PID_DIR "/var/run"
+#define PID_DIR_NONPRIVILEGED "/tmp"
+
 static char var_buf[CONFIG_BUF_SIZE];
 static char val_buf[CONFIG_BUF_SIZE];
 static char error_buf[CONFIG_BUF_SIZE];
@@ -90,14 +101,28 @@ char * config_error_get (void) {
   return error_buf;
 }
 
-void config_die (char *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  vfprintf(stderr, fmt, args);
-  va_end(args);
-  fprintf(stderr, "\n");
+char * pid_dir_get () {
+    if (getuid() == 0) {
+        return PID_DIR;
+    } else {
+        char *td = getenv("TMPDIR");
+    return (td == NULL || strlen(td) < 1) ?
+        PID_DIR_NONPRIVILEGED :
+        td;
+  }
+}
 
-  exit(1);
+int config_param_val_pid_file (char *str, char *dst) {
+  int len = (str == NULL) ? 0 : strlen(str);
+  memset(dst, '\0', PATH_MAX);
+  if (len < 1) {
+    char *name = stud_instance_name(NULL);
+    if (name == NULL || strlen(name) < 1) name = "stud";
+    snprintf(dst, PATH_MAX, "%s/%s.pid", pid_dir_get(), name);
+  } else {
+    strncat(dst, str, PATH_MAX);
+  }
+  return 1;
 }
 
 stud_config * config_new (void) {
@@ -138,12 +163,14 @@ stud_config * config_new (void) {
   r->SHCUPD_MCASTTTL    = NULL;
 #endif
 
-  r->QUIET              = 0;
   r->SYSLOG             = 0;
   r->SYSLOG_FACILITY    = LOG_DAEMON;
+  r->LOG_LEVEL          = log_str2level(NULL);
   r->TCP_KEEPALIVE_TIME = 3600;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
+
+  config_param_val_pid_file(NULL, r->PID_FILE);
 
   return r;
 }
@@ -528,10 +555,10 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   struct stat st;
       
   if (strcmp(k, "tls") == 0) {
-    //cfg->ENC_TLS = 1;
+    cfg->ETYPE = ENC_TLS;
   }
   else if (strcmp(k, "ssl") == 0) {
-    //cfg->ENC_TLS = 0;
+    cfg->ETYPE = ENC_SSL;
   }
   else if (strcmp(k, CFG_CIPHERS) == 0) {
     if (v != NULL && strlen(v) > 0) {
@@ -619,7 +646,7 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
     }
   }
   else if (strcmp(k, CFG_QUIET) == 0) {
-    r = config_param_val_bool(v, &cfg->QUIET);
+    cfg->LOG_LEVEL = LOG_ERR;
   }
   else if (strcmp(k, CFG_SYSLOG) == 0) {
     r = config_param_val_bool(v, &cfg->SYSLOG);
@@ -665,6 +692,9 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       r = 0;
     }
   }
+  else if (strcmp(k, CFG_LOG_LEVEL) == 0) {
+    cfg->LOG_LEVEL = log_str2level(v);
+  }
   else if (strcmp(k, CFG_DAEMON) == 0) {
     r = config_param_val_bool(v, &cfg->DAEMONIZE);
   }
@@ -687,6 +717,12 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
         config_assign_str(&cfg->CERT_FILE, v);
     }
   }
+  else if (strcmp(k, CFG_INSTANCE_NAME) == 0) {
+    stud_instance_name(v);
+  }
+  else if (strcmp(k, CFG_PID_FILE) == 0) {
+    r = config_param_val_pid_file(v, cfg->PID_FILE);
+  }
   else {
     fprintf(
       stderr,
@@ -696,17 +732,19 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   }
   
   if (! r) {
-    if (file != NULL)
-      config_die("Error in configuration file '%s', line %d: %s\n", file, line, config_error_get()); 
-    else
-      config_die("Invalid parameter '%s': %s", k, config_error_get());
+    if (file != NULL) {
+      die("Error in configuration file '%s', line %d: %s\n", file, line, config_error_get()); 
+    } else {
+      die("Invalid parameter '%s': %s", k, config_error_get());
+    }
   }
 }
 
 #ifndef NO_CONFIG_FILE
 int config_file_parse (char *file, stud_config *cfg) {
-  if (cfg == NULL)
-    config_die("Undefined stud options; THIS IS A BUG!\n");
+  if (cfg == NULL) {
+    die("Undefined stud options; THIS IS A BUG!\n");
+  }
   
   char line[CONFIG_BUF_SIZE];
   FILE *fd = NULL;
@@ -717,8 +755,26 @@ int config_file_parse (char *file, stud_config *cfg) {
   } else {
     fd = fopen(file, "r");
   }
-  if (fd == NULL)
-      config_die("Unable to open configuration file '%s': %s\n", file, strerror(errno));
+  if (fd == NULL) {
+      die("Unable to open configuration file '%s': %s\n", file, strerror(errno));
+  }
+
+  // assign stud instance name
+  char *bn = strdup(basename(file));
+  if (bn != NULL) {
+    char *ptr = bn + strlen(bn);
+    while (ptr > bn) {
+      if (*ptr == '.') {
+        *ptr = '\0';
+        break;
+      }
+      ptr--;
+    }
+    str_trim(bn);
+    stud_instance_name(bn);
+    config_param_val_pid_file(NULL, cfg->PID_FILE);
+    free(bn);
+  }
 
   // read config
   int i = 0;
@@ -736,8 +792,6 @@ int config_file_parse (char *file, stud_config *cfg) {
     val = config_get_value(line);
     if (val == NULL) continue;
     str_trim(val);
-    
-    // printf("File '%s', line %d, key: '%s', value: '%s'\n", file, i, key, val);
     
     // validate configuration key => value
     config_param_validate(key, val, cfg, file, i);
@@ -894,9 +948,13 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -q  --quiet                Be quiet; emit only error messages\n");
   fprintf(out, "  -s  --syslog               Send log message to syslog in addition to stderr/stdout\n");
   fprintf(out, "  --syslog-facility=FACILITY Syslog facility to use (Default: \"%s\")\n", config_disp_log_facility(cfg->SYSLOG_FACILITY));
+  fprintf(out, "      --log-level=NAME       Log level (Default: \"%s\")\n", config_disp_str(log_level2str(cfg->LOG_LEVEL)));
+  fprintf(out, "      --instance-name        Instance name (Default: \"%s\")\n", config_disp_str(stud_instance_name(NULL)));
   fprintf(out, "\n");
   fprintf(out, "OTHER OPTIONS:\n");
   fprintf(out, "      --daemon               Fork into background and become a daemon (Default: %s)\n", config_disp_bool(cfg->DAEMONIZE));
+  fprintf(out, "  -p  --pid-file=FILE        Save daemon's pid to specified file (Default: \"%s\")\n", config_disp_str(cfg->PID_FILE));
+  fprintf(out, "\n");
   fprintf(out, "      --write-ip             Write 1 octet with the IP family followed by the IP\n");
   fprintf(out, "                             address in 4 (IPv4) or 16 (IPv6) octets little-endian\n");
   fprintf(out, "                             to backend before the actual data\n");
@@ -1044,12 +1102,6 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, FMT_QSTR, CFG_GROUP, config_disp_gid(cfg->GID));
   fprintf(fd, "\n");
 
-  fprintf(fd, "# Quiet execution, report only error messages\n");
-  fprintf(fd, "#\n");
-  fprintf(fd, "# type: boolean\n");
-  fprintf(fd, FMT_STR, CFG_QUIET, config_disp_bool(cfg->QUIET));
-  fprintf(fd, "\n");
-
   fprintf(fd, "# Use syslog for logging\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# type: boolean\n");
@@ -1062,10 +1114,28 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, FMT_QSTR, CFG_SYSLOG_FACILITY, config_disp_log_facility(cfg->SYSLOG_FACILITY));
   fprintf(fd, "\n");
 
+  fprintf(fd, "# Log level\n");
+  fprintf(fd, "# Available levels: fatal, error, warning, notice, info, debug\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, FMT_QSTR, CFG_LOG_LEVEL, config_disp_str(log_level2str(cfg->LOG_LEVEL)));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Instance name (used for syslog ident)\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, FMT_QSTR, CFG_INSTANCE_NAME, config_disp_str(stud_instance_name(NULL)));
+  fprintf(fd, "\n");
+
   fprintf(fd, "# Run as daemon\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# type: boolean\n");
   fprintf(fd, FMT_STR, CFG_DAEMON, config_disp_bool(cfg->DAEMONIZE));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Pid file\n");
+  fprintf(fd, "# NOTE: Pid file is automatically computed from instance name.\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, "# %s = \"%s\"\n", CFG_PID_FILE, config_disp_str(cfg->PID_FILE));
   fprintf(fd, "\n");
 
   fprintf(fd, "# Report client address by writing IP before sending data\n");
@@ -1127,9 +1197,12 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_QUIET, 0, NULL, 'q' },
     { CFG_SYSLOG, 0, NULL, 's' },
     { CFG_SYSLOG_FACILITY, 1, NULL, CFG_PARAM_SYSLOG_FACILITY },
+    { CFG_LOG_LEVEL, 1, NULL, CFG_PARAM_LOG_LEVEL },
+    { CFG_INSTANCE_NAME, 1, NULL, CFG_PARAM_INSTANCE_NAME },
     { CFG_DAEMON, 0, &cfg->DAEMONIZE, 1 },
     { CFG_WRITE_IP, 0, &cfg->WRITE_IP_OCTET, 1 },
     { CFG_WRITE_PROXY, 0, &cfg->WRITE_PROXY_LINE, 1 },
+    { CFG_PID_FILE, 1, NULL, 'p' },
  
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1141,7 +1214,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     int option_index = 0;
     c = getopt_long(
       argc, argv,
-      "c:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qstVh",
+      "c:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qsp:tVh",
       long_options, &option_index
     );
 
@@ -1153,8 +1226,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
 #ifndef NO_CONFIG_FILE
       case CFG_PARAM_CFGFILE:
-        if (!config_file_parse(optarg, cfg))
-          config_die("%s", config_error_get());
+        if (!config_file_parse(optarg, cfg)) {
+          die("%s", config_error_get());
+        }
         break;
       case CFG_PARAM_DEFCFG:
         config_print_default(stdout, cfg);
@@ -1163,6 +1237,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
 #endif
       case CFG_PARAM_SYSLOG_FACILITY:
         config_param_validate(CFG_SYSLOG_FACILITY, optarg, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_LOG_LEVEL:
+        config_param_validate(CFG_LOG_LEVEL, optarg, cfg, NULL, 0);
         break;
       case 'c':
         config_param_validate(CFG_CIPHERS, optarg, cfg, NULL, 0);
@@ -1212,10 +1289,16 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         config_param_validate(CFG_GROUP, optarg, cfg, NULL, 0);
         break;
       case 'q':
-        config_param_validate(CFG_QUIET, CFG_BOOL_ON, cfg, NULL, 0);
+        config_param_validate(CFG_LOG_LEVEL, LSTR_ERR, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_INSTANCE_NAME:
+        config_param_validate(CFG_INSTANCE_NAME, optarg, cfg, NULL, 0);
         break;
       case 's':
         config_param_validate(CFG_SYSLOG, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case 'p':
+        config_param_validate(CFG_PID_FILE, optarg, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;
@@ -1230,14 +1313,15 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
 
       default:
-        config_die("Invalid command line parameters. Run %s --help for instructions.", basename(argv[0]));
+        die("Invalid command line parameters. Run %s --help for instructions.", basename(argv[0]));
     }
   }
   
   prog = argv[0];
 
-  if (tls && ssl)
-    config_die("Options --tls and --ssl are mutually exclusive.");
+  if (tls && ssl) {
+    die("Options --tls and --ssl are mutually exclusive.");
+  }
   else {
     if (ssl)
       cfg->ETYPE = ENC_SSL;
@@ -1245,17 +1329,18 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
       cfg->ETYPE = ENC_TLS;
   }
 
-  if (cfg->WRITE_IP_OCTET && cfg->WRITE_PROXY_LINE)
-    config_die("Options --write-ip and --write-proxy are mutually exclusive.");
+  if (cfg->WRITE_IP_OCTET && cfg->WRITE_PROXY_LINE) {
+    die("Options --write-ip and --write-proxy are mutually exclusive.");
+  }
 
   if (cfg->DAEMONIZE) {
     cfg->SYSLOG = 1;
-    cfg->QUIET = 1;
   }
 
 #ifdef USE_SHARED_CACHE
-  if (cfg->SHCUPD_IP != NULL && ! cfg->SHARED_CACHE)
-    config_die("Shared cache update listener is defined, but shared cache is disabled.");
+  if (cfg->SHCUPD_IP != NULL && ! cfg->SHARED_CACHE) {
+    die("Shared cache update listener is defined, but shared cache is disabled.");
+  }
 #endif
   
   // argv leftovers, do we have pem file as an argument?
@@ -1263,14 +1348,15 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
   argv += optind;
   if (argv != NULL && argv[0] != NULL)
     config_param_validate(CFG_PEM_FILE, argv[0], cfg, NULL, 0);
-  else if (cfg->CERT_FILE == NULL || strlen(cfg->CERT_FILE) < 1)
-    config_die("No x509 certificate PEM file specified!");
+  else if (cfg->CERT_FILE == NULL || strlen(cfg->CERT_FILE) < 1) {
+    fail("No x509 certificate PEM file specified!");
+  }
   
   // was this only a test?
   if (test_only) {
     fprintf(stderr, "Trying to initialize SSL context with certificate '%s'\n", cfg->CERT_FILE);
     if (! init_openssl())
-      config_die("Error initializing OpenSSL.");
+      die("Error initializing OpenSSL.");
     printf("%s configuration looks ok.\n", basename(prog));
     exit(0);
   }
