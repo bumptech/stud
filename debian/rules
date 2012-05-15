@@ -27,6 +27,11 @@ override_dh_auto_install:
 	chmod 700 $(CURDIR)/debian/stud/etc/stud
 	echo "Run /etc/init.d/stud --sample-config > /etc/stud/something.conf for default instance configuration" >> "$(CURDIR)/debian/stud/etc/stud/README.TXT"
 
+	# add init script
+	mkdir -p $(CURDIR)/debian/stud/etc/init.d
+	cp -a $(CURDIR)/init.stud $(CURDIR)/debian/stud/etc/init.d/stud
+	chmod 755 $(CURDIR)/debian/stud/etc/init.d/stud
+
 %:
 	dh $@
 
