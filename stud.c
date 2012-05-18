@@ -720,7 +720,7 @@ static int create_back_socket() {
         return s;
 
     perror("{backend-connect}");
-
+    close(s);
     return -1;
 }
 
