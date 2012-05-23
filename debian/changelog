@@ -3,7 +3,7 @@ stud (0.3~0.2012051501) unstable; urgency=low
   * Merged native configuration file support
   * Added init script :)
 
- -- Charlie Root <root@example.com>  Tue, May 15 2012 23:03:41 +200
+ -- Charlie Root <root@example.com>  Tue, 15 May 2012 23:03:41 +0200
 
 stud (0.3~0.20111212) unstable; urgency=low
 
