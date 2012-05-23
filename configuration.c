@@ -77,7 +77,7 @@
 #endif
 // END: configuration parameters
 
-#define PID_DIR "/var/run"
+#define PID_DIR "/var/run/stud"
 #define PID_DIR_NONPRIVILEGED "/tmp"
 
 static char var_buf[CONFIG_BUF_SIZE];
