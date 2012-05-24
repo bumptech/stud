@@ -41,6 +41,7 @@ struct __stud_config {
     long NCORES;
     char *CERT_FILE;
     char *CIPHER_SUITE;
+	char *NAMED_CURVE;
     char *ENGINE;
     int BACKLOG;
 #ifdef USE_SHARED_CACHE
