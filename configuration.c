@@ -901,7 +901,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
 #ifdef ENABLE_TACK
   fprintf(out, "  -T  --tack-file=FILE        Load TACK data from specified file.\n");
   fprintf(out, "  -S  --tack-break-sigs-file=FILE Load TACK break sigs from specified file.\n");
-  fprintf(out, "  -p  --tack-pin-activation   Activate TACK (only meaningful with other TACK options).\n");
+  fprintf(out, "  -p  --tack-pin-activation   Enable TACK pin activation (only meaningful with other TACK options).\n");
 #endif /* ENABLE_TACK */
   fprintf(out, "\n");
   fprintf(out, "SOCKET:\n");
