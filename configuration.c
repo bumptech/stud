@@ -30,6 +30,7 @@
 #define CFG_CIPHERS "ciphers"
 #define CFG_SSL_ENGINE "ssl-engine"
 #define CFG_PREFER_SERVER_CIPHERS "prefer-server-ciphers"
+#define CFG_NAMED_CURVE "named-curve"
 #define CFG_BACKEND "backend"
 #define CFG_FRONTEND "frontend"
 #define CFG_WORKERS "workers"
@@ -123,6 +124,7 @@ stud_config * config_new (void) {
   r->NCORES             = 1;
   r->CERT_FILE          = NULL;
   r->CIPHER_SUITE       = NULL;
+  r->NAMED_CURVE        = NULL;
   r->ENGINE             = NULL;
   r->BACKLOG            = 100;
 
@@ -160,6 +162,7 @@ void config_destroy (stud_config *cfg) {
   if (cfg->BACK_PORT != NULL) free(cfg->BACK_PORT);
   if (cfg->CERT_FILE != NULL) free(cfg->CERT_FILE);
   if (cfg->CIPHER_SUITE != NULL) free(cfg->CIPHER_SUITE);
+  if (cfg->NAMED_CURVE != NULL) free(cfg->NAMED_CURVE);
   if (cfg->ENGINE != NULL) free(cfg->ENGINE);
 
 #ifdef USE_SHARED_CACHE
@@ -538,7 +541,11 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       config_assign_str(&cfg->CIPHER_SUITE, v);
     }
   }
-  else if (strcmp(k, CFG_SSL_ENGINE) == 0) {
+  else if (strcmp(k, CFG_NAMED_CURVE) == 0) {
+    if (v != NULL && strlen(v) > 0) {
+      config_assign_str(&cfg->NAMED_CURVE, v);
+    }
+  }  else if (strcmp(k, CFG_SSL_ENGINE) == 0) {
     if (v != NULL && strlen(v) > 0) {
       config_assign_str(&cfg->ENGINE, v);
     }
@@ -853,6 +860,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -c  --ciphers=SUITE         Sets allowed ciphers (Default: \"%s\")\n", config_disp_str(cfg->CIPHER_SUITE));
   fprintf(out, "  -e  --ssl-engine=NAME       Sets OpenSSL engine (Default: \"%s\")\n", config_disp_str(cfg->ENGINE));
   fprintf(out, "  -O  --prefer-server-ciphers Prefer server list order\n");
+  fprintf(out, "  -N  --named-curve=NAME      Named curve for ECDH (Default: prime256v1, see openssl ecparams -list_curves)\n");
   fprintf(out, "\n");
   fprintf(out, "SOCKET:\n");
   fprintf(out, "\n");
@@ -1110,6 +1118,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { "ssl", 0, &ssl, 1},    
     { CFG_CIPHERS, 1, NULL, 'c' },
     { CFG_PREFER_SERVER_CIPHERS, 0, NULL, 'O' },
+    { CFG_NAMED_CURVE, 1, NULL, 'N' },
     { CFG_BACKEND, 1, NULL, 'b' },
     { CFG_FRONTEND, 1, NULL, 'f' },
     { CFG_WORKERS, 1, NULL, 'n' },
@@ -1141,7 +1150,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     int option_index = 0;
     c = getopt_long(
       argc, argv,
-      "c:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qstVh",
+      "c:N:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qstVh",
       long_options, &option_index
     );
 
@@ -1166,6 +1175,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case 'c':
         config_param_validate(CFG_CIPHERS, optarg, cfg, NULL, 0);
+        break;
+      case 'N':
+        config_param_validate(CFG_NAMED_CURVE, optarg, cfg, NULL, 0);
         break;
       case 'e':
         config_param_validate(CFG_SSL_ENGINE, optarg, cfg, NULL, 0);
