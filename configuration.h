@@ -41,6 +41,9 @@ struct __stud_config {
     long NCORES;
     char *CERT_FILE;
     char *CIPHER_SUITE;
+    char *TACK_FILE;
+    char *TACK_BREAK_SIGS_FILE;
+    int TACK_PIN_ACTIVATION;
     char *ENGINE;
     int BACKLOG;
 #ifdef USE_SHARED_CACHE

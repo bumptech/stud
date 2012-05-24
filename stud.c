@@ -599,6 +599,11 @@ SSL_CTX * init_openssl() {
     if (CONFIG->PREFER_SERVER_CIPHERS)
         SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+#ifdef OPENSSL_TACK
+	if (CONFIG->TACK_FILE || CONFIG->TACK_BREAK_SIGS_FILE)
+		SSL_CTX_use_tack_files(ctx, CONFIG->TACK_FILE, CONFIG->TACK_BREAK_SIGS_FILE, CONFIG->TACK_PIN_ACTIVATION);	
+#endif
+
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {
         if (shared_context_init(ctx, CONFIG->SHARED_CACHE) < 0) {
