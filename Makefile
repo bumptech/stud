@@ -1,5 +1,6 @@
 # [g]make USE_xxxx=1
 #
+# ENABLE_TACK        :   enable/disable TACK extension support (disabled by default)
 # USE_SHARED_CACHE   :   enable/disable a shared session cache (disabled by default)
 
 DESTDIR =
@@ -12,6 +13,11 @@ LDFLAGS = -lssl -lcrypto -lev -L/usr/local/lib
 OBJS    = stud.o ringbuffer.o configuration.o
 
 all: realall
+
+# TACK support
+ifneq ($(ENABLE_TACK),)
+CFLAGS += -DENABLE_TACK
+endif
 
 # Shared cache feature
 ifneq ($(USE_SHARED_CACHE),)
