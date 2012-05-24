@@ -29,9 +29,11 @@
 // BEGIN: configuration parameters
 #define CFG_CIPHERS "ciphers"
 #define CFG_SSL_ENGINE "ssl-engine"
+#ifdef ENABLE_TACK
 #define CFG_TACK_FILE "tack-file"
 #define CFG_TACK_BREAK_SIGS_FILE "tack-break-sigs-file"
 #define CFG_TACK_PIN_ACTIVATION "tack-pin-activation"
+#endif /* ENABLE_TACK */
 #define CFG_PREFER_SERVER_CIPHERS "prefer-server-ciphers"
 #define CFG_BACKEND "backend"
 #define CFG_FRONTEND "frontend"
@@ -126,9 +128,11 @@ stud_config * config_new (void) {
   r->NCORES             = 1;
   r->CERT_FILE          = NULL;
   r->CIPHER_SUITE       = NULL;
+#ifdef ENABLE_TACK
   r->TACK_FILE			= NULL;
   r->TACK_BREAK_SIGS_FILE			= NULL;
-  r->TACK_PIN_ACTIVATION			= 1;
+  r->TACK_PIN_ACTIVATION			= 0;
+#endif /* ENABLE_TACK */
   r->ENGINE             = NULL;
   r->BACKLOG            = 100;
 
@@ -166,8 +170,10 @@ void config_destroy (stud_config *cfg) {
   if (cfg->BACK_PORT != NULL) free(cfg->BACK_PORT);
   if (cfg->CERT_FILE != NULL) free(cfg->CERT_FILE);
   if (cfg->CIPHER_SUITE != NULL) free(cfg->CIPHER_SUITE);
+#ifdef ENABLE_TACK
   if (cfg->TACK_FILE != NULL) free(cfg->TACK_FILE);
   if (cfg->TACK_BREAK_SIGS_FILE != NULL) free(cfg->TACK_BREAK_SIGS_FILE);
+#endif /* ENABLE_TACK */
   if (cfg->ENGINE != NULL) free(cfg->ENGINE);
 
 #ifdef USE_SHARED_CACHE
@@ -546,6 +552,7 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       config_assign_str(&cfg->CIPHER_SUITE, v);
     }
   }
+#ifdef ENABLE_TACK
   else if (strcmp(k, CFG_TACK_FILE) == 0) {
     if (v != NULL && strlen(v) > 0) {
       if (stat(v, &st) != 0) {
@@ -575,6 +582,7 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_TACK_PIN_ACTIVATION) == 0) {
     r = config_param_val_bool(v, &cfg->TACK_PIN_ACTIVATION);
   }
+#endif /* ENABLE_TACK */
   else if (strcmp(k, CFG_SSL_ENGINE) == 0) {
     if (v != NULL && strlen(v) > 0) {
       config_assign_str(&cfg->ENGINE, v);
@@ -890,9 +898,11 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -c  --ciphers=SUITE         Sets allowed ciphers (Default: \"%s\")\n", config_disp_str(cfg->CIPHER_SUITE));
   fprintf(out, "  -e  --ssl-engine=NAME       Sets OpenSSL engine (Default: \"%s\")\n", config_disp_str(cfg->ENGINE));
   fprintf(out, "  -O  --prefer-server-ciphers Prefer server list order\n");
+#ifdef ENABLE_TACK
   fprintf(out, "  -T  --tack-file=FILE        Load TACK data from specified file.\n");
   fprintf(out, "  -S  --tack-break-sigs-file=FILE Load TACK break sigs from specified file.\n");
-  fprintf(out, "  -p  --tack-pin-inactive     Deactivate TACK pin (only meaningful with other TACK options).\n");
+  fprintf(out, "  -p  --tack-pin-activation   Activate TACK (only meaningful with other TACK options).\n");
+#endif /* ENABLE_TACK */
   fprintf(out, "\n");
   fprintf(out, "SOCKET:\n");
   fprintf(out, "\n");
@@ -1150,9 +1160,11 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { "ssl", 0, &ssl, 1},    
     { CFG_CIPHERS, 1, NULL, 'c' },
     { CFG_PREFER_SERVER_CIPHERS, 0, NULL, 'O' },
+#ifdef ENABLE_TACK
     { CFG_TACK_FILE, 1, NULL, 'T'},
     { CFG_TACK_BREAK_SIGS_FILE, 1, NULL, 'S'},
     { CFG_TACK_PIN_ACTIVATION, 0, NULL, 'p'},
+#endif /* ENABLE_TACK */
     { CFG_BACKEND, 1, NULL, 'b' },
     { CFG_FRONTEND, 1, NULL, 'f' },
     { CFG_WORKERS, 1, NULL, 'n' },
@@ -1210,6 +1222,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
       case 'c':
         config_param_validate(CFG_CIPHERS, optarg, cfg, NULL, 0);
         break;
+#ifdef ENABLE_TACK
       case 'T':
         config_param_validate(CFG_TACK_FILE, optarg, cfg, NULL, 0);
         break;
@@ -1219,6 +1232,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
       case 'p':
         config_param_validate(CFG_TACK_PIN_ACTIVATION, CFG_BOOL_ON, cfg, NULL, 0);
         break;
+#endif /* ENABLE_TACK */
       case 'e':
         config_param_validate(CFG_SSL_ENGINE, optarg, cfg, NULL, 0);
          break;
