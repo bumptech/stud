@@ -31,6 +31,7 @@ struct __stud_config {
     ENC_TYPE ETYPE;
     int WRITE_IP_OCTET;
     int WRITE_PROXY_LINE;
+    int READ_PROXY_LINE;
     char *CHROOT;
     uid_t UID;
     gid_t GID;
