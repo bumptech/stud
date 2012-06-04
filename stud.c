@@ -996,6 +996,7 @@ static void client_handshake(struct ev_loop *loop, ev_io *w, int revents) {
     int t;
     proxystate *ps = (proxystate *)w->data;
 
+    ERR_clear_error();
     t = SSL_do_handshake(ps->ssl);
     if (t == 1) {
         end_handshake(ps);
@@ -1046,6 +1047,7 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
         return;
     }
     char * buf = ringbuffer_write_ptr(&ps->ring_ssl2clear);
+    ERR_clear_error();
     t = SSL_read(ps->ssl, buf, RING_DATA_LEN);
 
     /* Fix CVE-2009-3555. Disable reneg if started by client. */
@@ -1081,6 +1083,7 @@ static void ssl_write(struct ev_loop *loop, ev_io *w, int revents) {
     proxystate *ps = (proxystate *)w->data;
     assert(!ringbuffer_is_empty(&ps->ring_clear2ssl));
     char * next = ringbuffer_read_next(&ps->ring_clear2ssl, &sz);
+    ERR_clear_error();
     t = SSL_write(ps->ssl, next, sz);
     if (t > 0) {
         if (t == sz) {
