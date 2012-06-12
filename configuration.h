@@ -21,6 +21,8 @@ typedef struct shcupd_peer_opt {
 
 #endif
 
+#define BACKENDS_MAX 32
+
 typedef enum {
     ENC_TLS,
     ENC_SSL
@@ -36,6 +38,13 @@ struct cert_files {
     struct cert_files *NEXT;
 };
 
+struct __stud_backend {
+    char *BACK_IP;
+    char *BACK_PORT;
+};
+
+typedef struct __stud_backend stud_backend;
+
 /* configuration structure */
 struct __stud_config {
     ENC_TYPE ETYPE;
@@ -48,8 +57,8 @@ struct __stud_config {
     gid_t GID;
     char *FRONT_IP;
     char *FRONT_PORT;
-    char *BACK_IP;
-    char *BACK_PORT;
+    int BACKENDS_COUNT;
+    stud_backend BACKENDS[BACKENDS_MAX];
     long NCORES;
     struct cert_files *CERT_FILES;
     char *CIPHER_SUITE;

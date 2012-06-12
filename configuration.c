@@ -121,8 +121,9 @@ stud_config * config_new (void) {
   r->GID                = 0;
   r->FRONT_IP           = NULL;
   r->FRONT_PORT         = strdup("8443");
-  r->BACK_IP            = strdup("127.0.0.1");
-  r->BACK_PORT          = strdup("8000");
+  r->BACKENDS_COUNT     = 0;
+  r->BACKENDS[0].BACK_IP = strdup("127.0.0.1");
+  r->BACKENDS[0].BACK_PORT = strdup("8000");
   r->NCORES             = 1;
   r->CERT_FILES         = NULL;
   r->CIPHER_SUITE       = NULL;
@@ -159,8 +160,10 @@ void config_destroy (stud_config *cfg) {
   if (cfg->CHROOT != NULL) free(cfg->CHROOT);
   if (cfg->FRONT_IP != NULL) free(cfg->FRONT_IP);
   if (cfg->FRONT_PORT != NULL) free(cfg->FRONT_PORT);
-  if (cfg->BACK_IP != NULL) free(cfg->BACK_IP);
-  if (cfg->BACK_PORT != NULL) free(cfg->BACK_PORT);
+  for (int i = 0; i < cfg->BACKENDS_COUNT; i++) {
+    if (cfg->BACKENDS[i].BACK_IP != NULL) free(cfg->BACKENDS[i].BACK_IP);
+    if (cfg->BACKENDS[i].BACK_PORT != NULL) free(cfg->BACKENDS[i].BACK_PORT);
+  }
   if (cfg->CERT_FILES != NULL) {
     struct cert_files *curr = cfg->CERT_FILES, *next;
     while (cfg->CERT_FILES != NULL) {
@@ -560,7 +563,8 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
     r = config_param_host_port_wildcard(v, &cfg->FRONT_IP, &cfg->FRONT_PORT, 1);
   }
   else if (strcmp(k, CFG_BACKEND) == 0) {
-    r = config_param_host_port(v, &cfg->BACK_IP, &cfg->BACK_PORT);
+    r = config_param_host_port(v, &cfg->BACKENDS[cfg->BACKENDS_COUNT].BACK_IP, &cfg->BACKENDS[cfg->BACKENDS_COUNT].BACK_PORT);
+    cfg->BACKENDS_COUNT++;
   }
   else if (strcmp(k, CFG_WORKERS) == 0) {
     r = config_param_val_intl_pos(v, &cfg->NCORES);
@@ -874,7 +878,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "SOCKET:\n");
   fprintf(out, "\n");
   fprintf(out, "  --client                    Enable client proxy mode\n");
-  fprintf(out, "  -b  --backend=HOST,PORT     Backend [connect] (default is \"%s\")\n", config_disp_hostport(cfg->BACK_IP, cfg->BACK_PORT));
+  fprintf(out, "  -b  --backend=HOST,PORT     Backend [connect] (can be given multiple times) (default is \"%s\")\n", config_disp_hostport(cfg->BACKENDS[0].BACK_IP, cfg->BACKENDS[0].BACK_PORT));
   fprintf(out, "  -f  --frontend=HOST,PORT    Frontend [bind] (default is \"%s\")\n", config_disp_hostport(cfg->FRONT_IP, cfg->FRONT_PORT));
 
 #ifdef USE_SHARED_CACHE
@@ -953,7 +957,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: string\n");
   fprintf(fd, "# syntax: [HOST]:PORT.\n");
-  fprintf(fd, FMT_QSTR, CFG_BACKEND, config_disp_hostport(cfg->BACK_IP, cfg->BACK_PORT));
+  if (cfg->BACKENDS_COUNT == 0) {
+    fprintf(fd, FMT_QSTR, CFG_BACKEND, config_disp_hostport(cfg->BACKENDS[0].BACK_IP, cfg->BACKENDS[0].BACK_PORT));
+  } else {
+    for (int i = 0; i < cfg->BACKENDS_COUNT; i++)
+      fprintf(fd, FMT_QSTR, CFG_BACKEND, config_disp_hostport(cfg->BACKENDS[i].BACK_IP, cfg->BACKENDS[i].BACK_PORT));
+  }
   fprintf(fd, "\n");
 
   fprintf(fd, "# SSL x509 certificate file. REQUIRED.\n");
@@ -1321,4 +1330,8 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     printf("%s configuration looks ok.\n", basename(prog));
     exit(0);
   }
+
+  // if no backend option given, use default
+  if (cfg->BACKENDS_COUNT == 0)
+    cfg->BACKENDS_COUNT = 1;
 }

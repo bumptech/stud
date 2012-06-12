@@ -92,7 +92,8 @@
 
 /* Globals */
 static struct ev_loop *loop;
-static struct addrinfo *backaddr;
+static struct addrinfo *backaddr[BACKENDS_MAX];
+static int backend_index;
 static pid_t master_pid;
 static ev_io listener;
 static int listener_socket;
@@ -171,6 +172,7 @@ typedef struct proxystate {
     SSL *ssl;                           /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
+    int backend_index;    /* Index of the backend to connect */
 } proxystate;
 
 #define LOG(...)                                            \
@@ -850,8 +852,8 @@ static int create_main_socket() {
 
 /* Initiate a clear-text nonblocking connect() to the backend IP on behalf
  * of a newly connected upstream (encrypted) client*/
-static int create_back_socket() {
-    int s = socket(backaddr->ai_family, SOCK_STREAM, IPPROTO_TCP);
+static int create_back_socket(int backend_index) {
+    int s = socket(backaddr[backend_index]->ai_family, SOCK_STREAM, IPPROTO_TCP);
 
     if (s == -1)
       return -1;
@@ -921,7 +923,7 @@ static void handle_socket_errno(proxystate *ps, int backend) {
 /* Start connect to backend */
 static void start_connect(proxystate *ps) {
     int t = 1;
-    t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(ps->fd_down, backaddr[ps->backend_index]->ai_addr, backaddr[ps->backend_index]->ai_addrlen);
     if (t == 0 || errno == EINPROGRESS || errno == EINTR) {
         ev_io_start(loop, &ps->ev_w_connect);
         return ;
@@ -1006,7 +1008,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
     int t;
     proxystate *ps = (proxystate *)w->data;
-    t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(ps->fd_down, backaddr[ps->backend_index]->ai_addr, backaddr[ps->backend_index]->ai_addrlen);
     if (!t || errno == EISCONN || !errno) {
         ev_io_stop(loop, &ps->ev_w_connect);
 
@@ -1334,7 +1336,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     setnonblocking(client);
     settcpkeepalive(client);
 
-    int back = create_back_socket();
+    int back = create_back_socket(backend_index);
 
     if (back == -1) {
         close(client);
@@ -1362,6 +1364,9 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->handshaked = 0;
     ps->renegotiation = 0;
     ps->remote_ip = addr;
+    ps->backend_index = backend_index++;
+    if (backend_index >= CONFIG->BACKENDS_COUNT)
+        backend_index = 0;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
 
@@ -1451,7 +1456,7 @@ static void handle_clear_accept(struct ev_loop *loop, ev_io *w, int revents) {
     setnonblocking(client);
     settcpkeepalive(client);
 
-    int back = create_back_socket();
+    int back = create_back_socket(backend_index);
 
     if (back == -1) {
         close(client);
@@ -1481,6 +1486,9 @@ static void handle_clear_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->handshaked = 0;
     ps->renegotiation = 0;
     ps->remote_ip = addr;
+    ps->backend_index = backend_index++;
+    if (backend_index >= CONFIG->BACKENDS_COUNT)
+        backend_index = 0;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
 
@@ -1570,12 +1578,15 @@ void init_globals() {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = 0;
-    const int gai_err = getaddrinfo(CONFIG->BACK_IP, CONFIG->BACK_PORT,
-                                    &hints, &backaddr);
-    if (gai_err != 0) {
-        ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
-        exit(1);
+    for (int i = 0; i < CONFIG->BACKENDS_COUNT; i++) {
+        const int gai_err = getaddrinfo(CONFIG->BACKENDS[i].BACK_IP, CONFIG->BACKENDS[i].BACK_PORT,
+                                        &hints, &backaddr[i]);
+        if (gai_err != 0) {
+            ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
+            exit(1);
+        }
     }
+    backend_index = 0;
 
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {
