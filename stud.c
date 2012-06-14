@@ -573,7 +573,7 @@ static void prepare_proxy_line(struct sockaddr* ai_addr) {
         struct sockaddr_in* addr = (struct sockaddr_in*)ai_addr;
         size_t res = snprintf(tcp_proxy_line,
                 sizeof(tcp_proxy_line),
-                "PROXY %%s %%s %s %%hu %hu\r",
+                "PROXY %%s %%s %s %%hu %hu\r\n",
                 inet_ntoa(addr->sin_addr),
                 ntohs(addr->sin_port));
         assert(res < sizeof(tcp_proxy_line));
@@ -583,7 +583,7 @@ static void prepare_proxy_line(struct sockaddr* ai_addr) {
       inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
       size_t res = snprintf(tcp_proxy_line,
 			    sizeof(tcp_proxy_line),
-			    "PROXY %%s %%s %s %%hu %hu\r",
+			    "PROXY %%s %%s %s %%hu %hu\r\n",
 			    tcp6_address_string,
 			    ntohs(addr->sin6_port));
       assert(res < sizeof(tcp_proxy_line));
