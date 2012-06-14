@@ -583,6 +583,13 @@ SSL_CTX * init_openssl() {
     if (CONFIG->PREFER_SERVER_CIPHERS)
         SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+    if (CONFIG->PEER_CRT_VRFY_DPTH) {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER |
+                SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_CLIENT_ONCE, NULL);
+        SSL_CTX_set_verify_depth(ctx, CONFIG->PEER_CRT_VRFY_DPTH);
+        // TODO: Make configurable
+        SSL_CTX_load_verify_locations(ctx, CONFIG->CERT_FILE, NULL);
+    }
 
     if (CONFIG->PMODE == SSL_CLIENT)
         return ctx;
