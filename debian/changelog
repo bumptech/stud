@@ -1,3 +1,9 @@
+stud (0.3~0.2012061401) unstable; urgency=low
+
+  * fixes --write-proxy
+
+ -- Lars van de Kerkhof <lars@permanentmarkers.nl>  Thu, 14 Jun 2012 9:39:41 +0100
+
 stud (0.3~0.2012052301) unstable; urgency=low
 
   * changed default pid file location
