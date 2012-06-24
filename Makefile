@@ -16,6 +16,7 @@ all: realall
 # Shared cache feature
 ifneq ($(USE_SHARED_CACHE),)
 CFLAGS += -DUSE_SHARED_CACHE -DUSE_SYSCALL_FUTEX
+LDFLAGS += -Wl,--as-needed -lpthread
 OBJS   += shctx.o ebtree/libebtree.a
 ALL    += ebtree
 
