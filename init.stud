@@ -93,6 +93,9 @@ _real_single_instance_start() {
      die "Empty stud pid. This is extremely weird."
   fi
 
+  file="${RUNTIME_DIR}/${1}.pid"
+  echo "${stud_pid}" > "${file}"
+
   return 0
   # set affinity!
   # stud_affinity_set "${stud_pid}" || die "${Error}"
