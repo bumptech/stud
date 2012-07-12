@@ -164,11 +164,11 @@ static inline void shared_context_unlock(void)
 
 /* SSL callback used on new session creation */
 int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
-	(void)ssl;
 	struct shared_session *shsess;
 	unsigned char *data,*p;
 	unsigned int data_len;
 	unsigned char encsess[SHSESS_MAX_ENCODED_LEN];
+	(void)ssl;
 
 	/* check if session reserved size in aligned buffer is large enougth for the ASN1 encode session */
 	data_len=i2d_SSL_SESSION(sess, NULL);
@@ -216,13 +216,13 @@ int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
 
 /* SSL callback used on lookup an existing session cause none found in internal cache */
 SSL_SESSION *shctx_get_cb(SSL *ssl, unsigned char *key, int key_len, int *do_copy) {
-	(void)ssl;
 	struct shared_session *shsess;
 	unsigned char data[SHSESS_MAX_DATA_LEN], *p;
 	unsigned char tmpkey[SSL_MAX_SSL_SESSION_ID_LENGTH];
 	unsigned int data_len;
 	long cdate;
 	SSL_SESSION *sess;
+	(void)ssl;
 
         /* allow the session to be freed automatically by openssl */
 	*do_copy = 0;
@@ -269,10 +269,10 @@ SSL_SESSION *shctx_get_cb(SSL *ssl, unsigned char *key, int key_len, int *do_cop
 
 /* SSL callback used to signal session is no more used in internal cache */
 void shctx_remove_cb(SSL_CTX *ctx, SSL_SESSION *sess) {
-	(void)ctx;
 	struct shared_session *shsess;
 	unsigned char tmpkey[SSL_MAX_SSL_SESSION_ID_LENGTH];
 	unsigned char *key = sess->session_id;
+	(void)ctx;
 
 	/* tree key is zeros padded sessionid */
 	if ( sess->session_id_length < SSL_MAX_SSL_SESSION_ID_LENGTH ) {
@@ -333,64 +333,80 @@ void shsess_set_new_cbk(void (*func)(unsigned char *, unsigned int, long)) {
 	shared_session_new_cbk = func;
 }
 
-/* Init shared memory context if not allocated and set SSL context callbacks
- * size is the max number of stored session 
- * Returns: -1 on alloc failure, size if performs context alloc, and 0 if just perform
- * callbacks registration */
-int shared_context_init(SSL_CTX *ctx, int size)
-{
-	int ret = 0;
-
-	if (!shctx) {
-		int i;
-
+/* Allocate shared memory context. 
+ * size is maximum cached sessions.
+ *      if set less or equal to 0, SHCTX_DEFAULT_SIZE is used.
+ * Returns: -1 on alloc failure, size if it performs context alloc,
+ * and 0 if cache is already allocated */
+int shared_context_init(int size) {
+	int i;
 #ifndef USE_SYSCALL_FUTEX
-		pthread_mutexattr_t attr;
+	pthread_mutexattr_t attr;
 #endif /* USE_SYSCALL_FUTEX */
-		struct shared_session *prev,*cur;
+	struct shared_session *prev,*cur;
 
-		shctx = (struct shared_context *)mmap(NULL, sizeof(struct shared_context)+(size*sizeof(struct shared_session)),
-								PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-		if (!shctx || shctx == MAP_FAILED)
-			return -1;
+	if (shctx)
+		return 0;
 
-#ifdef USE_SYSCALL_FUTEX
-		shctx->waiters = 0;
-#else
-		pthread_mutexattr_init(&attr);
-		pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-		pthread_mutex_init(&shctx->mutex, &attr);
-#endif
-		memset(&shctx->active.key, 0, sizeof(struct ebmb_node));
-		memset(&shctx->free.key, 0, sizeof(struct ebmb_node));
+	if (size<=0)
+		size = SHCTX_DEFAULT_SIZE;
 
-		/* No duplicate authorized in tree: */
-		shctx->active.key.node.branches.b[1] = (void *)1;
-
-		cur = &shctx->active; 
-		cur->n = cur->p = cur;
-		
-		cur = &shctx->free;
-		for ( i = 0 ; i < size ; i++) {
-			prev = cur;
-			cur = (struct shared_session *)((char *)prev + sizeof(struct shared_session));
-			prev->n = cur;
-			cur->p = prev;
-		}
-		cur->n = &shctx->free;
-		shctx->free.p = cur;
-
-		ret = size;
+	shctx = (struct shared_context *)mmap(NULL, sizeof(struct shared_context)+(size*sizeof(struct shared_session)),
+							PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (!shctx || shctx == MAP_FAILED) {
+		shctx = NULL;
+		return -1;
 	}
 
-	/* set SSL internal cache size to external cache / 8  + 123 */
-	SSL_CTX_sess_set_cache_size(ctx, size >> 3 | 0x3ff);
+#ifdef USE_SYSCALL_FUTEX
+	shctx->waiters = 0;
+#else
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+	pthread_mutex_init(&shctx->mutex, &attr);
+#endif
+	memset(&shctx->active.key, 0, sizeof(struct ebmb_node));
+	memset(&shctx->free.key, 0, sizeof(struct ebmb_node));
+
+	/* No duplicate authorized in tree: */
+	//shctx->active.key.node.branches.b[1] = (void *)1;
+	shctx->active.key.node.branches = EB_ROOT_UNIQUE;
+
+	cur = &shctx->active; 
+	cur->n = cur->p = cur;
+		
+	cur = &shctx->free;
+	for ( i = 0 ; i < size ; i++) {
+		prev = cur;
+		cur = (struct shared_session *)((char *)prev + sizeof(struct shared_session));
+		prev->n = cur;
+		cur->p = prev;
+	}
+	cur->n = &shctx->free;
+	shctx->free.p = cur;
+
+	return size;
+}
+
+
+/* Set session cache mode to server and disable openssl internal cache. 
+ * Set shared cache callbacks on an ssl context.
+ * Shared context MUST be firstly initialized */
+void shared_context_set_cache(SSL_CTX *ctx) {
+
+	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER
+						|SSL_SESS_CACHE_NO_INTERNAL
+						|SSL_SESS_CACHE_NO_AUTO_CLEAR);
+	if (!shctx)
+		return;
 
 	/* Set callbacks */
 	SSL_CTX_sess_set_new_cb(ctx, shctx_new_cb);
 	SSL_CTX_sess_set_get_cb(ctx, shctx_get_cb);
 	SSL_CTX_sess_set_remove_cb(ctx, shctx_remove_cb);
 
-	return ret;
 }
+
+
+
 

@@ -21,9 +21,14 @@
 #define SHSESS_MAX_DATA_LEN 512
 #endif
 
+#ifndef SHCTX_DEFAULT_SIZE
+#define SHCTX_DEFAULT_SIZE 20000
+#endif
+
 #define SHSESS_MAX_ENCODED_LEN SSL_MAX_SSL_SESSION_ID_LENGTH \
 				+ SHSESS_MAX_DATA_LEN \
 				+ SHSESS_MAX_FOOTER_LEN
+
 
 
 /* Callback called on a new session event:
@@ -44,10 +49,17 @@ void shsess_set_new_cbk(void (*func)(unsigned char *session, unsigned int len, l
  * if cdate not 0, on get events session creation date will be reset to cdate */
 void shctx_sess_add(const unsigned char *session, unsigned int session_len, long cdate);
 
-/* Init shared memory context if not allocated and set SSL context callbacks
- * size is the max number of stored session 
- * Returns: -1 on alloc failure, size if performs context alloc, and 0 if just
- * perform callbacks registration */
-int shared_context_init(SSL_CTX *ctx, int size);
+/* Allocate shared memory context. 
+ * size is maximum cached sessions.
+ *      if set less or equal to 0, SHCTX_DEFAULT_SIZE is used.
+ * Returns: -1 on alloc failure, size if it performs context alloc,
+ * and 0 if cache is already allocated */
+int shared_context_init(int size);
+
+/* Set shared cache callbacks on an ssl context.
+ * Set session cache mode to server and disable openssl internal cache. 
+ * Shared context MUST be firstly initialized */
+void shared_context_set_cache(SSL_CTX *ctx);
 
 #endif /* SHCTX_H */
+
