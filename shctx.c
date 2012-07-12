@@ -173,7 +173,7 @@ int shctx_new_cb(SSL *ssl, SSL_SESSION *sess) {
 	/* check if session reserved size in aligned buffer is large enougth for the ASN1 encode session */
 	data_len=i2d_SSL_SESSION(sess, NULL);
 	if(data_len > SHSESS_MAX_DATA_LEN)
-		return 1;
+		return 0;
 
 	/* process ASN1 session encoding before the lock: lower cost */
 	p = data = encsess+SSL_MAX_SSL_SESSION_ID_LENGTH;
