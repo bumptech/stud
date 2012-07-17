@@ -95,7 +95,7 @@ static SSL_SESSION *client_session;
 static ev_io shcupd_listener;
 static int shcupd_socket;
 struct addrinfo *shcupd_peers[MAX_SHCUPD_PEERS+1];
-static unsigned char shared_secret[SHA_DIGEST_LENGTH];
+static unsigned char shared_secret[SHA384_DIGEST_LENGTH];
 
 //typedef struct shcupd_peer_opt {
 //     const char *ip;
@@ -272,14 +272,14 @@ static void handle_shcupd(struct ev_loop *loop, ev_io *w, int revents) {
     while ( ( r = recv(w->fd, msg, sizeof(msg), 0) ) > 0 ) {
 
         /* msg len must be greater than 1 Byte of data + sig length */
-        if (r < (int)(1+sizeof(shared_secret)))  
+        if (r < (int)(1+SHA_DIGEST_LENGTH))
            continue;
 
         /* compute sig */
-        r -= sizeof(shared_secret);
-        HMAC(EVP_sha1(), shared_secret, sizeof(shared_secret), msg, r, hash, &hash_len);
+        r -= SHA_DIGEST_LENGTH;
+        HMAC(EVP_sha1(), shared_secret, SHA_DIGEST_LENGTH, msg, r, hash, &hash_len);
 
-        if (hash_len != sizeof(shared_secret)) /* should never append */
+        if (hash_len != SHA_DIGEST_LENGTH) /* should never append */
            continue;
 
         /* check sign */
@@ -312,7 +312,7 @@ void shcupd_session_new(unsigned char *msg, unsigned int len, long cdate) {
     len += sizeof(ncdate);
 
     /* add msg sign */
-    HMAC(EVP_sha1(), shared_secret, sizeof(shared_secret),
+    HMAC(EVP_sha1(), shared_secret, SHA_DIGEST_LENGTH,
                      msg, len, msg+len, &hash_len);
     len += hash_len;
 
@@ -323,7 +323,7 @@ void shcupd_session_new(unsigned char *msg, unsigned int len, long cdate) {
     }
 }
 
-/* Compute a sha1 secret from an ASN1 rsa private key */
+/* Compute a sha384 secret from an ASN1 rsa private key */
 static int compute_secret(RSA *rsa, unsigned char *secret) {
     unsigned char *buf,*p;
     unsigned int length;
@@ -338,7 +338,7 @@ static int compute_secret(RSA *rsa, unsigned char *secret) {
 
     i2d_RSAPrivateKey(rsa,&p);
 
-    SHA1(buf, length, secret);
+    SHA384(buf, length, secret);
 
     free(buf);
 
@@ -620,11 +620,15 @@ SSL_CTX * init_openssl() {
                 exit(1);
             }
 
-            /* Force tls tickets cause keys differs */
-            SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
-
             if (*shcupd_peers) {
                 shsess_set_new_cbk(shcupd_session_new);
+            }
+
+            /* Set ticket keys. Shared secret should be at least 48 bytes. */
+            if (SSL_CTX_ctrl(ctx, SSL_CTRL_SET_TLSEXT_TICKET_KEYS,
+                             sizeof(shared_secret), shared_secret) != 1) {
+                ERR("Unable to set TLS ticket keys\n");
+                exit(1);
             }
         }
     }
