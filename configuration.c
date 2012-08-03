@@ -124,6 +124,9 @@ stud_config * config_new (void) {
   r->BACK_IP            = strdup("127.0.0.1");
   r->BACK_PORT          = strdup("8000");
   r->NCORES             = 1;
+#ifdef _SC_NPROCESSORS_ONLN
+  r->NCORES             = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
   r->CERT_FILES         = NULL;
   r->CIPHER_SUITE       = NULL;
   r->ENGINE             = NULL;
