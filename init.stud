@@ -286,7 +286,7 @@ _real_single_instance_start() {
   # wait a little bit, check if pid is still alive
   sleep 0.2 >/dev/null 2>&1
   if ! kill -0 "${stud_pid}" >/dev/null 2>&1; then
-    die "Stud started successfully as pid ${stud_pid} but died shortly after startup.";
+    die "Stud started successfully as pid ${stud_pid} but died shortly after startup with output ${out}.";
   fi
 
   # write pid file!
