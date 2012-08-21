@@ -234,6 +234,7 @@ _real_single_instance_start() {
 
   opts="${opts} -q"
   test "${SYSLOG}" = "1" && opts="${opts} -s"
+  test ! -z "${SYSLOG_FACILITY}" && opts="${opts} --syslog-facility=${SYSLOG_FACILITY}"
 
   test "${WRITE_IP}" = "1" && opts="${opts} --write-ip"
   test "${WRITE_PROXY}" = "1" && opts="${opts} --write-proxy"
