@@ -48,6 +48,7 @@ static void (*shared_session_new_cbk)(unsigned char *session, unsigned int sessi
 
 /* Lock functions */
 #ifdef USE_SYSCALL_FUTEX
+#if defined (__i586__) || defined (__x86_64__)
 static inline unsigned int xchg(unsigned int *ptr, unsigned int x)
 {
 	__asm volatile("lock xchgl %0,%1"
@@ -78,6 +79,30 @@ static inline unsigned char atomic_dec(unsigned int *ptr)
 		     : "memory");
 	return ret;
 }
+
+#else /* if no x86_64 or i586 arch: use less optimized gcc >= 4.1 built-ins */
+static inline unsigned int xchg(unsigned int *ptr, unsigned int x)
+{
+	unsigned int old;
+
+	do {
+		old = *ptr;
+	} while (__sync_val_compare_and_swap(ptr, old, x) != old);
+
+	return old;
+}
+
+static inline unsigned int cmpxchg(unsigned int *ptr, unsigned int old, unsigned int new)
+{
+	return __sync_val_compare_and_swap(ptr, old, new);
+}
+
+static inline unsigned char atomic_dec(unsigned int *ptr)
+{
+	return __sync_sub_and_fetch(ptr, 1) ? 1 : 0;
+}
+
+#endif
 
 static inline void shared_context_lock(void)
 {
