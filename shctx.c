@@ -83,13 +83,7 @@ static inline unsigned char atomic_dec(unsigned int *ptr)
 #else /* if no x86_64 or i586 arch: use less optimized gcc >= 4.1 built-ins */
 static inline unsigned int xchg(unsigned int *ptr, unsigned int x)
 {
-	unsigned int old;
-
-	do {
-		old = *ptr;
-	} while (__sync_val_compare_and_swap(ptr, old, x) != old);
-
-	return old;
+	return __sync_lock_test_and_set(ptr, x);
 }
 
 static inline unsigned int cmpxchg(unsigned int *ptr, unsigned int old, unsigned int new)
