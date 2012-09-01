@@ -46,6 +46,7 @@
 .Op Fl qs
 .Op Fl -write-ip
 .Op Fl -write-proxy
+.Op Fl -write-xff
 .Ar certificate.pem
 .Sh DESCRIPTION
 .Nm
@@ -117,6 +118,8 @@ data.
 .It Fl -write-proxy
 Write HaProxy's PROXY (IPv4 or IPv6) protocol line
 before actual data.
+.It Fl -write-xff
+Write X-Forwarded-For header before actual data.
 .El
 .Sh SEE ALSO
 .Xr ciphers 1SSL ,
