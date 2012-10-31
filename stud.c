@@ -563,7 +563,7 @@ int is_servername_match(const char *servername, char *certname) {
         if (strlen(certname) > 2 && strstr(certname, "*.") == certname) {
             char *dot = strstr(servername, ".");
             char *after_subdomain = strcasestr(servername, &certname[1]);
-            if (dot == after_subdomain && strlen(after_subdomain) == strlen(&certname[1])) {
+            if (dot && dot == after_subdomain && strlen(after_subdomain) == strlen(&certname[1])) {
                 return 1;
             }
         }
