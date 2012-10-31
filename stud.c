@@ -555,6 +555,22 @@ RSA *load_rsa_privatekey(SSL_CTX *ctx, const char *file) {
 }
 
 #ifndef OPENSSL_NO_TLSEXT
+
+int is_servername_match(const char *servername, char *certname) {
+    if (strcasecmp(servername, certname) == 0) {
+        return 1;
+    } else {
+        if (strlen(certname) > 2 && strstr(certname, "*.") == certname) {
+            char *dot = strstr(servername, ".");
+            char *after_subdomain = strcasestr(servername, &certname[1]);
+            if (dot == after_subdomain && strlen(after_subdomain) == strlen(&certname[1])) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 /*
  * Switch the context of the current SSL object to the most appropriate one
  * based on the SNI header
@@ -571,7 +587,7 @@ int sni_switch_ctx(SSL *ssl, int *al, void *data) {
     // For now, just compare servernames as case insensitive strings. Someday,
     // it might be nice to Do The Right Thing around star certs.
     for (cl = sni_ctxs; cl != NULL; cl = cl->next) {
-        if (strcasecmp(servername, cl->servername) == 0) {
+        if (is_servername_match(servername, cl->servername)) {  
             SSL_set_SSL_CTX(ssl, cl->ctx);
             return SSL_TLSEXT_ERR_NOACK;
         }
