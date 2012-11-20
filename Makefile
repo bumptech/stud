@@ -7,6 +7,10 @@ PREFIX  = /usr/local
 BINDIR  = $(PREFIX)/bin
 MANDIR  = $(PREFIX)/share/man
 
+UPSTARTDIR = /etc/init
+CONFDIR = /etc/stud
+CONFFILE = stud.cfg
+
 CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE -I/usr/local/include
 LDFLAGS = -lssl -lcrypto -lev -L/usr/local/lib
 OBJS    = stud.o ringbuffer.o configuration.o
@@ -45,6 +49,11 @@ install: $(ALL)
 	install -d $(DESTDIR)$(MANDIR)/man8
 	install -m 644 stud.8 $(DESTDIR)$(MANDIR)/man8
 
+	install -d $(UPSTARTDIR)
+	install upstart/stud.conf $(UPSTARTDIR)
+
+	install -d $(CONFDIR)
+	stud --default-config > $(CONFDIR)/$(CONFFILE)
 clean:
 	rm -f stud $(OBJS)
 
