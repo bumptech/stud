@@ -54,6 +54,17 @@ install: $(ALL)
 
 	install -d $(CONFDIR)
 	stud --default-config > $(CONFDIR)/$(CONFFILE)
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/stud
+	rm -f $(DESTDIR)$(MANDIR)/man8/stud.8
+	rmdir $(DESTDIR)$(MANDIR)/man8 --ignore-fail-on-non-empty
+
+	rm -f $(UPSTARTDIR)/stud.conf
+
+	rm -f $(CONFDIR)/$(CONFFILE)
+	rmdir $(CONFDIR) --ignore-fail-on-non-empty
+
 clean:
 	rm -f stud $(OBJS)
 
