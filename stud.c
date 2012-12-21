@@ -446,6 +446,13 @@ static void shutdown_proxy(proxystate *ps, SHUTDOWN_REQUESTOR req) {
         close(ps->fd_up);
         close(ps->fd_down);
 
+        // Clear the SSL error queue - it might contain details
+        // of errors that we haven't consumed for whatever reason.
+        // If we don't, future calls to SSL_get_error will lead to 
+        // weird/confusing results that can throw off the handling
+        // of normal conditions like SSL_ERROR_WANT_READ.
+        ERR_clear_error();
+
         SSL_set_shutdown(ps->ssl, SSL_SENT_SHUTDOWN);
         SSL_free(ps->ssl);
 
@@ -672,7 +679,15 @@ static void client_handshake(struct ev_loop *loop, ev_io *w, int revents) {
             shutdown_proxy(ps, SHUTDOWN_UP);
         }
         else {
-            LOG("{client} Unexpected SSL error (in handshake): %d\n", err);
+
+            // Try and get more detail on the error from the SSL
+            // error queue. ERR_error_string requires a char buffer
+            // of 120 bytes.
+            unsigned long err_detail = ERR_get_error();
+            char err_msg[120];
+            ERR_error_string(err_detail, err_msg);
+
+            LOG("{client} Unexpected SSL error (in handshake): %d, %s\n", err, err_msg);
             shutdown_proxy(ps, SHUTDOWN_UP);
         }
     }
