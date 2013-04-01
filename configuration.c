@@ -45,6 +45,7 @@
 #define CFG_DAEMON "daemon"
 #define CFG_WRITE_IP "write-ip"
 #define CFG_WRITE_PROXY "write-proxy"
+#define CFG_WRITE_XFF "write-xff"
 #define CFG_PEM_FILE "pem-file"
 #define CFG_PROXY_PROXY "proxy-proxy"
 
@@ -115,6 +116,7 @@ stud_config * config_new (void) {
   r->PMODE              = SSL_SERVER;
   r->WRITE_IP_OCTET     = 0;
   r->WRITE_PROXY_LINE   = 0;
+  r->WRITE_XFF_LINE     = 0;
   r->PROXY_PROXY_LINE   = 0;
   r->CHROOT             = NULL;
   r->UID                = 0;
@@ -684,6 +686,9 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_WRITE_PROXY) == 0) {
     r = config_param_val_bool(v, &cfg->WRITE_PROXY_LINE);
   }
+  else if (strcmp(k, CFG_WRITE_XFF) == 0) {
+    r = config_param_val_bool(v, &cfg->WRITE_XFF_LINE);
+  }
   else if (strcmp(k, CFG_PROXY_PROXY) == 0) {
     r = config_param_val_bool(v, &cfg->PROXY_PROXY_LINE);
   }
@@ -922,6 +927,8 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "      --write-proxy          Write HaProxy's PROXY (IPv4 or IPv6) protocol line\n" );
   fprintf(out, "                             before actual data\n");
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->WRITE_PROXY_LINE));
+  fprintf(out, "      --write-xff            Write X-Forwarded-For header before actual data\n" );
+  fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->WRITE_XFF_LINE));
   fprintf(out, "      --proxy-proxy          Proxy HaProxy's PROXY (IPv4 or IPv6) protocol line\n" );
   fprintf(out, "                             before actual data\n");
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->PROXY_PROXY_LINE));
@@ -1109,6 +1116,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, FMT_STR, CFG_WRITE_PROXY, config_disp_bool(cfg->WRITE_PROXY_LINE));
   fprintf(fd, "\n");
 
+  fprintf(fd, "# Report client address using X-Forwarded-For header.\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: boolean\n");
+  fprintf(fd, FMT_STR, CFG_WRITE_XFF, config_disp_bool(cfg->WRITE_XFF_LINE));
+  fprintf(fd, "\n");
+
   fprintf(fd, "# Proxy an existing SENDPROXY protocol header through this request.\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# NOTE: This option is mutually exclusive with option %s and %s.\n", CFG_WRITE_IP, CFG_WRITE_PROXY);
@@ -1163,6 +1176,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_DAEMON, 0, &cfg->DAEMONIZE, 1 },
     { CFG_WRITE_IP, 0, &cfg->WRITE_IP_OCTET, 1 },
     { CFG_WRITE_PROXY, 0, &cfg->WRITE_PROXY_LINE, 1 },
+    { CFG_WRITE_XFF, 0, &cfg->WRITE_XFF_LINE, 1 },
     { CFG_PROXY_PROXY, 0, &cfg->PROXY_PROXY_LINE, 1 },
 
     { "test", 0, NULL, 't' },
