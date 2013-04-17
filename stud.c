@@ -979,6 +979,7 @@ static void clear_read(struct ev_loop *loop, ev_io *w, int revents) {
     t = recv(fd, buf, RING_DATA_LEN, 0);
 
     if (t > 0) {
+        ps->sent_xff = 0;
         ringbuffer_write_append(&ps->ring_clear2ssl, t);
         if (ringbuffer_is_full(&ps->ring_clear2ssl))
             ev_io_stop(loop, &ps->ev_r_clear);
