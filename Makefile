@@ -60,7 +60,7 @@ rpm:
 	sed -re s/GIT_VERSION/$(shell git describe)/ \
 		rhel/stud.spec > ${TMPDIR}/SPECS/stud.spec
 	rpmbuild --define "_topdir ${TMPDIR}" \
-		-bb ${TMPDIR}/SPECS/stud.spec
+		-bb ${TMPDIR}/SPECS/stud.spec $(if $(USE_SHARED_CACHE),--with cache,)
 	find ${TMPDIR}/RPMS/ -type f -name "*.rpm" -exec mv {} . \;
 
 .PHONY: all realall

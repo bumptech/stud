@@ -16,6 +16,9 @@
     %undefine post_tag
 %endif
 
+# Use --with cache to build the RPM with the USE_SHARED_CACHE feature
+%bcond_with cache
+
 Name:		stud
 Version:	%{version}
 Release:	%{?post_tag}%{!?post_tag:1}%{?dist}
@@ -36,15 +39,18 @@ thousands of connections efficiently on multicore machines.
 
 %prep
 %setup -q
-
+%if %{with cache}
+mkdir ebtree
+curl http://1wt.eu/tools/ebtree/ebtree-6.0.8.tar.gz | tar xzf - -C "ebtree" --strip 1
+%endif
 
 %build
-make %{?_smp_mflags}
+make %{?_smp_mflags} %{?_with_cache:USE_SHARED_CACHE=1}
 
 
 %install
 rm -rf %{buildroot}
-make install DESTDIR=%{buildroot} PREFIX=/usr
+make install DESTDIR=%{buildroot} PREFIX=/usr %{?_with_cache:USE_SHARED_CACHE=1}
 install -d %{buildroot}/etc/init.d
 install init.stud %{buildroot}/etc/init.d/stud
 
