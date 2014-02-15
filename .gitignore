@@ -4,3 +4,5 @@ core
 core.*
 *.o
 stud
+
+*.swp
