@@ -560,7 +560,15 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
     r = config_param_host_port_wildcard(v, &cfg->FRONT_IP, &cfg->FRONT_PORT, 1);
   }
   else if (strcmp(k, CFG_BACKEND) == 0) {
-    r = config_param_host_port(v, &cfg->BACK_IP, &cfg->BACK_PORT);
+    int vlen = 0;
+    
+    cfg->BACK_CONN_MODE = CONN_INET;
+    if(v != NULL && (vlen = strlen(v)) > 7 && strncasecmp(v, "pipe://", 6) == 0) {
+      cfg->BACK_CONN_MODE = CONN_PIPE;
+      config_assign_str(&cfg->BACK_IP,(v+7));
+      if(cfg->BACK_IP[0] == '@') cfg->BACK_IP[0] = '\0';
+    } 
+    else r = config_param_host_port(v, &cfg->BACK_IP, &cfg->BACK_PORT);
   }
   else if (strcmp(k, CFG_WORKERS) == 0) {
     r = config_param_val_intl_pos(v, &cfg->NCORES);
