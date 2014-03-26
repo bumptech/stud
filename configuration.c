@@ -18,6 +18,9 @@
 #include <grp.h>
 #include <sys/stat.h>
 #include <syslog.h>
+#ifdef __linux__
+#include <sys/utsname.h>
+#endif
 
 #include "configuration.h"
 #include "version.h"
@@ -35,6 +38,7 @@
 #define CFG_WORKERS "workers"
 #define CFG_BACKLOG "backlog"
 #define CFG_KEEPALIVE "keepalive"
+#define CFG_TCP_USER_TIMEOUT "tcp-user-timeout"
 #define CFG_CHROOT "chroot"
 #define CFG_USER "user"
 #define CFG_GROUP "group"
@@ -146,6 +150,7 @@ stud_config * config_new (void) {
   r->SYSLOG             = 0;
   r->SYSLOG_FACILITY    = LOG_DAEMON;
   r->TCP_KEEPALIVE_TIME = 3600;
+  r->TCP_USER_TIMEOUT_MS= 0;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
 
@@ -576,6 +581,56 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_KEEPALIVE) == 0) {
     r = config_param_val_int_pos(v, &cfg->TCP_KEEPALIVE_TIME);
   }
+  else if (strcmp(k, CFG_TCP_USER_TIMEOUT) == 0) {
+#ifdef __linux__
+    int can_use_option = 0;
+    struct utsname info;
+
+    /* This option is supported in Linux since 2.6.37 */
+    if (uname(&info) == 0) {
+      int major, minor, patch;
+	    if (sscanf(info.release, "%d.%d.%d", &major, &minor, &patch) == 3) {
+        if (major > 2) {
+          can_use_option = 1;
+        }
+        else if (major == 2) {
+          if (minor > 6) {
+            can_use_option = 1;
+        }
+        else if (minor == 6) {
+          if (patch >= 37) {
+            can_use_option = 1;
+          }
+        }
+      }
+    }
+  }
+
+  r = config_param_val_int(v, &cfg->TCP_USER_TIMEOUT_MS);
+	
+  if (cfg->TCP_USER_TIMEOUT_MS < 0) {
+    config_error_set("The option TCP_USER_TIMEOUT must be positive");
+    r = 0;
+  }
+  else if (r && !can_use_option && cfg->TCP_USER_TIMEOUT_MS != 0) {
+    /* As this is only a warning, not an error, it won't be shown using config_error_set, so we print it to stderr directly */
+    fprintf(stderr, "TCP_USER_TIMEOUT option can only be used in Linux since 2.6.37, your version is %s. Option disabled.\n", info.release);
+    cfg->TCP_USER_TIMEOUT_MS = 0;        
+  }
+#else	  
+  r = config_param_val_int(v, &cfg->TCP_USER_TIMEOUT_MS);
+	
+  if (cfg->TCP_USER_TIMEOUT_MS < 0) {
+    config_error_set("The option TCP_USER_TIMEOUT must be positive");
+    r = 0;
+  }
+  else if (r && cfg->TCP_USER_TIMEOUT_MS != 0) {
+    /* As this is only a warning, not an error, it won't be shown using config_error_set, so we print it to stderr directly */
+    fprintf(stderr, "TCP_USER_TIMEOUT option can only be used in Linux since 2.6.37. Option disabled.\n");
+    cfg->TCP_USER_TIMEOUT_MS = 0;
+  }
+#endif
+  }
 #ifdef USE_SHARED_CACHE
   else if (strcmp(k, CFG_SHARED_CACHE) == 0) {
     r = config_param_val_int(v, &cfg->SHARED_CACHE);
@@ -899,6 +954,8 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -n  --workers=NUM          Number of worker processes (Default: %ld)\n", cfg->NCORES);
   fprintf(out, "  -B  --backlog=NUM          Set listen backlog size (Default: %d)\n", cfg->BACKLOG);
   fprintf(out, "  -k  --keepalive=SECS       TCP keepalive on client socket (Default: %d)\n", cfg->TCP_KEEPALIVE_TIME);
+  fprintf(out, "  --tcp-user-timeout=MSECS   Milliseconds to wait for ACK packets. Only available\n");
+  fprintf(out, "                             in Linux since 2.6.37. Disabled = 0 (Default: %d)\n", cfg->TCP_USER_TIMEOUT_MS);
 
 #ifdef USE_SHARED_CACHE
   fprintf(out, "  -C  --session-cache=NUM    Enable and set SSL session cache to specified number\n");
@@ -1015,6 +1072,15 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "# type: integer\n");
   fprintf(fd, FMT_ISTR, CFG_KEEPALIVE, cfg->TCP_KEEPALIVE_TIME);
   fprintf(fd, "\n");
+  
+#ifdef __linux__
+  fprintf(fd, "# TCP socket TCP_USER_TIMEOUT option in milliseconds\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: integer\n");
+  fprintf(fd, "# Value 0 means disabled\n");
+  fprintf(fd, FMT_ISTR, CFG_TCP_USER_TIMEOUT, cfg->TCP_USER_TIMEOUT_MS);
+  fprintf(fd, "\n");	
+#endif  
 
 #ifdef USE_SHARED_CACHE
   fprintf(fd, "# SSL session cache size\n");
@@ -1163,6 +1229,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_SHARED_CACHE_MCASTIF, 1, NULL, 'M' },
 #endif
     { CFG_KEEPALIVE, 1, NULL, 'k' },
+    { CFG_TCP_USER_TIMEOUT, 1, NULL, 'T'}, 
     { CFG_CHROOT, 1, NULL, 'r' },
     { CFG_USER, 1, NULL, 'u' },
     { CFG_GROUP, 1, NULL, 'g' },
@@ -1244,6 +1311,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
 #endif
       case 'k':
         config_param_validate(CFG_KEEPALIVE, optarg, cfg, NULL, 0);
+        break;
+      case 'T':
+        config_param_validate(CFG_TCP_USER_TIMEOUT, optarg, cfg, NULL, 0);
         break;
       case 'r':
         config_param_validate(CFG_CHROOT, optarg, cfg, NULL, 0);

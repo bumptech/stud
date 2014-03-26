@@ -33,7 +33,11 @@
 #include <netdb.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#ifdef __linux__
+#include <linux/tcp.h>
+#else
 #include <netinet/tcp.h>
+#endif
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -210,6 +214,21 @@ static void settcpkeepalive(int fd) {
 #ifdef TCP_KEEPIDLE
     if(setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen) < 0) {
         ERR("Error setting TCP_KEEPIDLE on client socket: %s", strerror(errno));
+    }
+#endif
+}
+
+/* set the TCP_USER_TIMEOUT tcp socket option */
+static void settcpusertimeout(int fd) {
+
+#if defined(__linux__) && defined(TCP_USER_TIMEOUT)
+    if (CONFIG->TCP_USER_TIMEOUT_MS > 0) {
+      int optval = CONFIG->TCP_USER_TIMEOUT_MS;
+      socklen_t optlen = sizeof(optval);
+
+      if(setsockopt(fd, SOL_TCP, TCP_USER_TIMEOUT, &optval, optlen) < 0) {
+          ERR("Error setting TCP_USER_TIMEOUT on client socket: %s", strerror(errno));
+      }
     }
 #endif
 }
@@ -1335,6 +1354,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
 
     setnonblocking(client);
     settcpkeepalive(client);
+    settcpusertimeout(client);
 
     int back = create_back_socket(backend_index);
 
@@ -1455,6 +1475,7 @@ static void handle_clear_accept(struct ev_loop *loop, ev_io *w, int revents) {
 
     setnonblocking(client);
     settcpkeepalive(client);
+    settcpusertimeout(client);
 
     int back = create_back_socket(backend_index);
 

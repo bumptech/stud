@@ -76,6 +76,7 @@ struct __stud_config {
     int SYSLOG;
     int SYSLOG_FACILITY;
     int TCP_KEEPALIVE_TIME;
+    int TCP_USER_TIMEOUT_MS;
     int DAEMONIZE;
     int PREFER_SERVER_CIPHERS;
 };
