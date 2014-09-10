@@ -65,6 +65,7 @@ struct __stud_config {
 	char *NAMED_CURVE;
     char *ENGINE;
     int BACKLOG;
+    long SESSION_TIMEOUT;
 #ifdef USE_SHARED_CACHE
     int SHARED_CACHE;
     char *SHCUPD_IP;

@@ -34,6 +34,7 @@
 #define CFG_SSL_ENGINE "ssl-engine"
 #define CFG_PREFER_SERVER_CIPHERS "prefer-server-ciphers"
 #define CFG_NAMED_CURVE "named-curve"
+#define CFG_SESSION_TIMEOUT "session-timeout"
 #define CFG_BACKEND "backend"
 #define CFG_FRONTEND "frontend"
 #define CFG_WORKERS "workers"
@@ -135,6 +136,7 @@ stud_config * config_new (void) {
   r->NAMED_CURVE        = NULL;
   r->ENGINE             = NULL;
   r->BACKLOG            = 100;
+  r->SESSION_TIMEOUT    = -1;
 
 #ifdef USE_SHARED_CACHE
   r->SHARED_CACHE       = 0;
@@ -571,6 +573,10 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_PREFER_SERVER_CIPHERS) == 0) {
     r = config_param_val_bool(v, &cfg->PREFER_SERVER_CIPHERS);
   }
+  else if (strcmp(k, CFG_SESSION_TIMEOUT) == 0) {
+    r = config_param_val_intl(v, &cfg->SESSION_TIMEOUT);
+    if (r && cfg->SESSION_TIMEOUT < -1) cfg->SESSION_TIMEOUT = -1;
+  }
   else if (strcmp(k, CFG_FRONTEND) == 0) {
     r = config_param_host_port_wildcard(v, &cfg->FRONT_IP, &cfg->FRONT_PORT, 1);
   }
@@ -937,6 +943,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -e  --ssl-engine=NAME       Sets OpenSSL engine (Default: \"%s\")\n", config_disp_str(cfg->ENGINE));
   fprintf(out, "  -O  --prefer-server-ciphers Prefer server list order\n");
   fprintf(out, "  -N  --named-curve=NAME      Named curve for ECDH (Default: prime256v1, see openssl ecparams -list_curves)\n");
+  fprintf(out, "  -x  --session-timeout=SECONDS Session timeout in seconds\n");
   fprintf(out, "\n");
   fprintf(out, "SOCKET:\n");
   fprintf(out, "\n");
@@ -1228,6 +1235,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_PREFER_SERVER_CIPHERS, 0, NULL, 'O' },
     { CFG_NAMED_CURVE, 1, NULL, 'N' },
     { CFG_BACKEND, 1, NULL, 'b' },
+    { CFG_SESSION_TIMEOUT, required_argument, NULL, 'x'},
     { CFG_FRONTEND, 1, NULL, 'f' },
     { CFG_WORKERS, 1, NULL, 'n' },
     { CFG_BACKLOG, 1, NULL, 'B' },
@@ -1260,7 +1268,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     int option_index = 0;
     c = getopt_long(
       argc, argv,
-      "c:N:e:Ob:f:n:B:C:U:P:M:k:r:u:g:qstVh",
+      "c:N:e:Ob:f:n:B:C:U:P:M:k:r:u:g:x:qstVh",
       long_options, &option_index
     );
 
@@ -1294,6 +1302,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
          break;
       case 'O':
         config_param_validate(CFG_PREFER_SERVER_CIPHERS, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case 'x':
+        config_param_validate(CFG_SESSION_TIMEOUT, optarg, cfg, NULL, 0);
         break;
       case 'b':
         config_param_validate(CFG_BACKEND, optarg, cfg, NULL, 0);

@@ -716,6 +716,10 @@ SSL_CTX *make_ctx(const char *pemfile) {
     }
 #endif
 
+    if (CONFIG->SESSION_TIMEOUT != -1) {
+        SSL_CTX_set_timeout(ctx, CONFIG->SESSION_TIMEOUT);
+    }
+
     RSA_free(rsa);
     return ctx;
 }
