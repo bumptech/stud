@@ -272,18 +272,36 @@ static int init_dh(SSL_CTX *ctx, const char *cert) {
     LOG("{core} DH initialized with %d bit key\n", 8*DH_size(dh));
     DH_free(dh);
 
-#ifndef OPENSSL_NO_EC
-#ifdef NID_X9_62_prime256v1
-    EC_KEY *ecdh = NULL;
-    ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-    SSL_CTX_set_tmp_ecdh(ctx, ecdh);
-    EC_KEY_free(ecdh);
-    LOG("{core} ECDH Initialized with NIST P-256\n");
-#endif /* NID_X9_62_prime256v1 */
-#endif /* OPENSSL_NO_EC */
-
     return 0;
 }
+
+#ifndef OPENSSL_NO_EC
+static int init_ecdh(SSL_CTX *ctx, const char *named_curve) {
+    EC_KEY *ecdh = NULL;
+	int nid = 0;
+
+	if (named_curve) {
+		nid = OBJ_sn2nid(named_curve);
+	} else {
+		nid = OBJ_sn2nid("prime256v1");
+	}
+	if (nid == 0) {
+		LOG("{core} ECDH initialization failed: unknown curve %s\n", named_curve);
+		return -1;
+	}
+	ecdh = EC_KEY_new_by_curve_name(nid);
+	if (ecdh == NULL) {
+		ERR("{core} ECDH initialization failed for curve %s\n", named_curve);
+		return -1;
+	}
+    SSL_CTX_set_tmp_ecdh(ctx,ecdh);
+    EC_KEY_free(ecdh);
+    LOG("{core} ECDH initialized with %s\n", named_curve);
+
+	return 0;
+}
+#endif /* OPENSSL_NO_EC */
+
 #endif /* OPENSSL_NO_DH */
 
 /* This callback function is executed while OpenSSL processes the SSL
@@ -665,6 +683,9 @@ SSL_CTX *make_ctx(const char *pemfile) {
 
 #ifndef OPENSSL_NO_DH
     init_dh(ctx, pemfile);
+#ifndef OPENSSL_NO_EC
+	init_ecdh(ctx, CONFIG->NAMED_CURVE);
+#endif /* OPENSSL_NO_EC */
 #endif /* OPENSSL_NO_DH */
 
 #ifndef OPENSSL_NO_TLSEXT

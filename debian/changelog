@@ -1,3 +1,29 @@
+stud (0.3~0.2014062401~wheezy) unstable; urgency=low
+
+  * Merged ecdh_named_curves from https://github.com/b/stud
+
+ -- Ricardo Bartolome Mendez <ricardo@tuenti.com>  Tue, 24 Jun 2014 12:44:13 +0000
+
+stud (0.3~0.2014042801~wheezy) unstable; urgency=low
+
+  * Build for Debian Wheezy
+
+ -- Ricardo Bartolome Mendez <ricardo@tuenti.com>  Mon, 28 Apr 2014 12:50:35 +0000
+
+stud (0.3~0.2014042801~squeeze) unstable; urgency=low
+
+  * Rev 150c3545458f1a40939854890ee6d5eb31a1383b linked against ebtree 6.0.8
+  * Built for Debian Squeeze
+
+ -- Ricardo Bartolome Mendez <ricardo@tuenti.com>  Mon, 28 Apr 2014 12:44:52 +0000
+
+stud (0.3~0.20140428) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Built revision 150c3545458f1a40939854890ee6d5eb31a1383b
+
+ -- Ricardo Bartolome Mendez <ricardo@tuenti.com>  Mon, 28 Apr 2014 12:32:20 +0000
+
 stud (0.3~0.20111212) unstable; urgency=low
 
   * Initial release.

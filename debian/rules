@@ -8,8 +8,8 @@ override_dh_auto_clean:
 	make clean
 
 override_dh_auto_configure:
-	if [ ! -f ebtree-6.0.6.tar.gz ]; then wget http://1wt.eu/tools/ebtree/ebtree-6.0.6.tar.gz; fi
-	if [ ! -d ebtree ]; then tar zxpf ebtree-6.0.6.tar.gz; mv ebtree-6.0.6 ebtree; fi
+	if [ ! -f ebtree-6.0.8.tar.gz ]; then wget http://1wt.eu/tools/ebtree/ebtree-6.0.8.tar.gz; fi
+	if [ ! -d ebtree ]; then tar zxpf ebtree-6.0.8.tar.gz; mv ebtree-6.0.8 ebtree; fi
 
 override_dh_auto_build:
 	make USE_SHARED_CACHE=1 PREFIX=/usr
