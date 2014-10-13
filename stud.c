@@ -696,7 +696,10 @@ SSL_CTX *make_ctx(const char *pemfile) {
 
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {
-        if (shared_context_init(ctx, CONFIG->SHARED_CACHE) < 0) {
+        if (CONFIG->SSL_CACHE_SIZE >= 0) {
+            LOG("{core} Forcing OpenSSL cache size to: %d\n", CONFIG->SSL_CACHE_SIZE);
+        }
+        if (shared_context_init(ctx, CONFIG->SHARED_CACHE, CONFIG->SSL_CACHE_SIZE) < 0) {
             ERR("Unable to alloc memory for shared cache.\n");
             exit(1);
         }

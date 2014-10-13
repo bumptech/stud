@@ -66,6 +66,7 @@ struct __stud_config {
     char *ENGINE;
     int BACKLOG;
     long SESSION_TIMEOUT;
+    int SSL_CACHE_SIZE;
 #ifdef USE_SHARED_CACHE
     int SHARED_CACHE;
     char *SHCUPD_IP;

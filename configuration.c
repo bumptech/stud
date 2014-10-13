@@ -35,6 +35,7 @@
 #define CFG_PREFER_SERVER_CIPHERS "prefer-server-ciphers"
 #define CFG_NAMED_CURVE "named-curve"
 #define CFG_SESSION_TIMEOUT "session-timeout"
+#define CFG_SSL_CACHE_SIZE "openssl-cache-size"
 #define CFG_BACKEND "backend"
 #define CFG_FRONTEND "frontend"
 #define CFG_WORKERS "workers"
@@ -137,6 +138,7 @@ stud_config * config_new (void) {
   r->ENGINE             = NULL;
   r->BACKLOG            = 100;
   r->SESSION_TIMEOUT    = -1;
+  r->SSL_CACHE_SIZE     = -1;
 
 #ifdef USE_SHARED_CACHE
   r->SHARED_CACHE       = 0;
@@ -576,6 +578,10 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_SESSION_TIMEOUT) == 0) {
     r = config_param_val_intl(v, &cfg->SESSION_TIMEOUT);
     if (r && cfg->SESSION_TIMEOUT < -1) cfg->SESSION_TIMEOUT = -1;
+  }
+  else if (strcmp(k, CFG_SSL_CACHE_SIZE) == 0) {
+    r = config_param_val_int(v, &cfg->SSL_CACHE_SIZE);
+    if (r && cfg->SSL_CACHE_SIZE < -1) cfg->SSL_CACHE_SIZE = -1;
   }
   else if (strcmp(k, CFG_FRONTEND) == 0) {
     r = config_param_host_port_wildcard(v, &cfg->FRONT_IP, &cfg->FRONT_PORT, 1);
@@ -1236,6 +1242,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_NAMED_CURVE, 1, NULL, 'N' },
     { CFG_BACKEND, 1, NULL, 'b' },
     { CFG_SESSION_TIMEOUT, required_argument, NULL, 'x'},
+    { CFG_SSL_CACHE_SIZE, required_argument, NULL, 'y'},
     { CFG_FRONTEND, 1, NULL, 'f' },
     { CFG_WORKERS, 1, NULL, 'n' },
     { CFG_BACKLOG, 1, NULL, 'B' },
@@ -1268,7 +1275,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     int option_index = 0;
     c = getopt_long(
       argc, argv,
-      "c:N:e:Ob:f:n:B:C:U:P:M:k:r:u:g:x:qstVh",
+      "c:N:e:Ob:f:n:B:C:U:P:M:k:r:u:g:x:y:qstVh",
       long_options, &option_index
     );
 
@@ -1305,6 +1312,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case 'x':
         config_param_validate(CFG_SESSION_TIMEOUT, optarg, cfg, NULL, 0);
+        break;
+      case 'y':
+        config_param_validate(CFG_SSL_CACHE_SIZE, optarg, cfg, NULL, 0);
         break;
       case 'b':
         config_param_validate(CFG_BACKEND, optarg, cfg, NULL, 0);
