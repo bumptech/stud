@@ -950,6 +950,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "  -O  --prefer-server-ciphers Prefer server list order\n");
   fprintf(out, "  -N  --named-curve=NAME      Named curve for ECDH (Default: prime256v1, see openssl ecparams -list_curves)\n");
   fprintf(out, "  -x  --session-timeout=SECONDS Session timeout in seconds\n");
+  fprintf(out, "  -y  --openssl-cache-size    Sets OpenSSL library cache size (0 to disable it)\n");
   fprintf(out, "\n");
   fprintf(out, "SOCKET:\n");
   fprintf(out, "\n");
