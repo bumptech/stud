@@ -1,3 +1,22 @@
+stud (0.3~0.2014111901~wheezy) unstable; urgency=low
+
+  * Doc -y and --openssl-cache-size in usage
+
+ -- Stefan Wehner <stefan@tuenti.com>  Wed, 19 Nov 2014 10:27:48 +0000
+
+stud (0.3~0.2014101501~wheezy) unstable; urgency=low
+
+  * Added the option to disable SSLv3.
+
+ -- Alfredo Beaumont <abeumont@tuenti.com>  Wed, 15 Oct 2014 10:39:49 +0000
+
+stud (0.3~0.2014091601~wheezy) unstable; urgency=low
+
+  * Added -x and --session-timeout parameters in order to control OpenSSL TLS
+    session timeout which is 300 seconds by default.
+
+ -- Ricardo Bartolome Mendez <ricardo@tuenti.com>  Tue, 16 Sep 2014 09:45:15 +0000
+
 stud (0.3~0.2014062401~wheezy) unstable; urgency=low
 
   * Merged ecdh_named_curves from https://github.com/b/stud
