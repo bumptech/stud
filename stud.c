@@ -1820,7 +1820,6 @@ void openssl_check_version() {
     LOG("{core} Using OpenSSL version %lx.\n", (unsigned long int) openssl_version);
 }
 
-
 /* Process command line args, create the bound socket,
  * spawn child (worker) processes, and respawn if any die */
 int main(int argc, char **argv) {
