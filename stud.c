@@ -848,6 +848,20 @@ static int create_main_socket() {
     return s;
 }
 
+
+void do_listen(){
+    listener_socket = create_main_socket();
+
+#ifdef USE_SHARED_CACHE
+    if (CONFIG->SHCUPD_PORT) {
+        /* create socket to send(children) and
+               receive(parent) cache updates */
+        shcupd_socket = create_shcupd_socket();
+    }
+#endif /* USE_SHARED_CACHE */
+}
+
+
 /* Initiate a clear-text nonblocking connect() to the backend IP on behalf
  * of a newly connected upstream (encrypted) client*/
 static int create_back_socket() {
@@ -1520,6 +1534,10 @@ static void handle_connections() {
     /* child cannot create new children... */
     create_workers = 0;
 
+#ifdef SO_REUSEPORT
+    do_listen();
+#endif
+
 #if defined(CPU_ZERO) && defined(CPU_SET)
     cpu_set_t cpus;
 
@@ -1802,6 +1820,7 @@ void openssl_check_version() {
     LOG("{core} Using OpenSSL version %lx.\n", (unsigned long int) openssl_version);
 }
 
+
 /* Process command line args, create the bound socket,
  * spawn child (worker) processes, and respawn if any die */
 int main(int argc, char **argv) {
@@ -1819,15 +1838,9 @@ int main(int argc, char **argv) {
 
     init_globals();
 
-    listener_socket = create_main_socket();
-
-#ifdef USE_SHARED_CACHE
-    if (CONFIG->SHCUPD_PORT) {
-        /* create socket to send(children) and
-               receive(parent) cache updates */
-        shcupd_socket = create_shcupd_socket();
-    }
-#endif /* USE_SHARED_CACHE */
+#ifndef SO_REUSEPORT
+    do_listen();
+#endif
 
     /* load certificates, pass to handle_connections */
     init_openssl();
