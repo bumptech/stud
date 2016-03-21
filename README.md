@@ -1,3 +1,12 @@
+STATUS
+======
+
+Stud is now officially abandonware, thanks for playing.
+
+Recommended alternative: https://github.com/varnish/hitch
+
+More info: https://blog.jamwt.com/2016/03/21/stud-no-more/
+
 stud - The Scalable TLS Unwrapping Daemon
 =========================================
 
