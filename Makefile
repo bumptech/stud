@@ -11,6 +11,9 @@ CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE -I/usr/loc
 LDFLAGS = -lssl -lcrypto -lev -L/usr/local/lib
 OBJS    = stud.o ringbuffer.o configuration.o
 
+#Some security enhancement 
+CFLAGS += -fstack-protector --param=ssp-buffer-size=4 -Wp,-D_FORTIFY_SOURCE=2 
+
 all: realall
 
 # Shared cache feature
