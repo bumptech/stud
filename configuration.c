@@ -957,8 +957,11 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "\n");
 
   fprintf(fd, "# SSL x509 certificate file. REQUIRED.\n");
-  fprintf(fd, "# List multiple certs to use SNI. Certs are used in the order they\n");
-  fprintf(fd, "# are listed; the last cert listed will be used if none of the others match\n");
+  fprintf(fd, "# List multiple certs to use SNI like so:\n");
+  fprintf(fd, "#pem-file=\"/my/pem/file1.pem\"\n");
+  fprintf(fd, "#pem-file=\"/my/pem/file2.pem\"\n");
+  fprintf(fd, "# Certs are used in the order they are listed; \n");
+  fprintf(fd, "# the last cert listed will be used if none of the others match\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# type: string\n");
   fprintf(fd, FMT_QSTR, CFG_PEM_FILE, "");

@@ -555,6 +555,22 @@ RSA *load_rsa_privatekey(SSL_CTX *ctx, const char *file) {
 }
 
 #ifndef OPENSSL_NO_TLSEXT
+
+int is_servername_match(const char *servername, char *certname) {
+    if (strcasecmp(servername, certname) == 0) {
+        return 1;
+    } else {
+        if (strlen(certname) > 2 && strstr(certname, "*.") == certname) {
+            char *dot = strstr(servername, ".");
+            char *after_subdomain = strcasestr(servername, &certname[1]);
+            if (dot && dot == after_subdomain && strlen(after_subdomain) == strlen(&certname[1])) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 /*
  * Switch the context of the current SSL object to the most appropriate one
  * based on the SNI header
@@ -571,7 +587,7 @@ int sni_switch_ctx(SSL *ssl, int *al, void *data) {
     // For now, just compare servernames as case insensitive strings. Someday,
     // it might be nice to Do The Right Thing around star certs.
     for (cl = sni_ctxs; cl != NULL; cl = cl->next) {
-        if (strcasecmp(servername, cl->servername) == 0) {
+        if (is_servername_match(servername, cl->servername)) {  
             SSL_set_SSL_CTX(ssl, cl->ctx);
             return SSL_TLSEXT_ERR_NOACK;
         }
@@ -889,6 +905,13 @@ static void shutdown_proxy(proxystate *ps, SHUTDOWN_REQUESTOR req) {
         close(ps->fd_up);
         close(ps->fd_down);
 
+        // Clear the SSL error queue - it might contain details
+        // of errors that we haven't consumed for whatever reason.
+        // If we don't, future calls to SSL_get_error will lead to 
+        // weird/confusing results that can throw off the handling
+        // of normal conditions like SSL_ERROR_WANT_READ.
+        ERR_clear_error();
+
         SSL_set_shutdown(ps->ssl, SSL_SENT_SHUTDOWN);
         SSL_free(ps->ssl);
 
@@ -1197,7 +1220,14 @@ static void client_handshake(struct ev_loop *loop, ev_io *w, int revents) {
             shutdown_proxy(ps, SHUTDOWN_SSL);
         }
         else {
-            LOG("{%s} Unexpected SSL error (in handshake): %d\n", w->fd == ps->fd_up ? "client" : "backend", err);
+            // Try and get more detail on the error from the SSL
+            // error queue. ERR_error_string requires a char buffer
+            // of 120 bytes.
+            unsigned long err_detail = ERR_get_error();
+            char err_msg[120];
+            ERR_error_string(err_detail, err_msg);
+
+            LOG("{%s} Unexpected SSL error (in handshake): %d, %s\n", w->fd == ps->fd_up ? "client" : "backend", err, err_msg);
             shutdown_proxy(ps, SHUTDOWN_SSL);
         }
     }
