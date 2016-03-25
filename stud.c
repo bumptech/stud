@@ -33,7 +33,11 @@
 #include <netdb.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#ifdef __linux__
+#include <linux/tcp.h>
+#else
 #include <netinet/tcp.h>
+#endif
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -92,7 +96,8 @@
 
 /* Globals */
 static struct ev_loop *loop;
-static struct addrinfo *backaddr;
+static struct addrinfo *backaddr[BACKENDS_MAX];
+static int backend_index;
 static pid_t master_pid;
 static ev_io listener;
 static int listener_socket;
@@ -171,6 +176,7 @@ typedef struct proxystate {
     SSL *ssl;                           /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
+    int backend_index;    /* Index of the backend to connect */
 } proxystate;
 
 #define LOG(...)                                            \
@@ -208,6 +214,21 @@ static void settcpkeepalive(int fd) {
 #ifdef TCP_KEEPIDLE
     if(setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen) < 0) {
         ERR("Error setting TCP_KEEPIDLE on client socket: %s", strerror(errno));
+    }
+#endif
+}
+
+/* set the TCP_USER_TIMEOUT tcp socket option */
+static void settcpusertimeout(int fd) {
+
+#if defined(__linux__) && defined(TCP_USER_TIMEOUT)
+    if (CONFIG->TCP_USER_TIMEOUT_MS > 0) {
+      int optval = CONFIG->TCP_USER_TIMEOUT_MS;
+      socklen_t optlen = sizeof(optval);
+
+      if(setsockopt(fd, SOL_TCP, TCP_USER_TIMEOUT, &optval, optlen) < 0) {
+          ERR("Error setting TCP_USER_TIMEOUT on client socket: %s", strerror(errno));
+      }
     }
 #endif
 }
@@ -251,18 +272,36 @@ static int init_dh(SSL_CTX *ctx, const char *cert) {
     LOG("{core} DH initialized with %d bit key\n", 8*DH_size(dh));
     DH_free(dh);
 
-#ifndef OPENSSL_NO_EC
-#ifdef NID_X9_62_prime256v1
-    EC_KEY *ecdh = NULL;
-    ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-    SSL_CTX_set_tmp_ecdh(ctx, ecdh);
-    EC_KEY_free(ecdh);
-    LOG("{core} ECDH Initialized with NIST P-256\n");
-#endif /* NID_X9_62_prime256v1 */
-#endif /* OPENSSL_NO_EC */
-
     return 0;
 }
+
+#ifndef OPENSSL_NO_EC
+static int init_ecdh(SSL_CTX *ctx, const char *named_curve) {
+    EC_KEY *ecdh = NULL;
+	int nid = 0;
+
+	if (named_curve) {
+		nid = OBJ_sn2nid(named_curve);
+	} else {
+		nid = OBJ_sn2nid("prime256v1");
+	}
+	if (nid == 0) {
+		LOG("{core} ECDH initialization failed: unknown curve %s\n", named_curve);
+		return -1;
+	}
+	ecdh = EC_KEY_new_by_curve_name(nid);
+	if (ecdh == NULL) {
+		ERR("{core} ECDH initialization failed for curve %s\n", named_curve);
+		return -1;
+	}
+    SSL_CTX_set_tmp_ecdh(ctx,ecdh);
+    EC_KEY_free(ecdh);
+    LOG("{core} ECDH initialized with %s\n", named_curve);
+
+	return 0;
+}
+#endif /* OPENSSL_NO_EC */
+
 #endif /* OPENSSL_NO_DH */
 
 /* This callback function is executed while OpenSSL processes the SSL
@@ -590,7 +629,7 @@ SSL_CTX *make_ctx(const char *pemfile) {
     SSL_CTX *ctx;
     RSA *rsa;
 
-    long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_ALL |
+    long ssloptions = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_ALL |
             SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
 
 #ifdef SSL_OP_NO_COMPRESSION
@@ -644,6 +683,9 @@ SSL_CTX *make_ctx(const char *pemfile) {
 
 #ifndef OPENSSL_NO_DH
     init_dh(ctx, pemfile);
+#ifndef OPENSSL_NO_EC
+	init_ecdh(ctx, CONFIG->NAMED_CURVE);
+#endif /* OPENSSL_NO_EC */
 #endif /* OPENSSL_NO_DH */
 
 #ifndef OPENSSL_NO_TLSEXT
@@ -654,7 +696,10 @@ SSL_CTX *make_ctx(const char *pemfile) {
 
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {
-        if (shared_context_init(ctx, CONFIG->SHARED_CACHE) < 0) {
+        if (CONFIG->SSL_CACHE_SIZE >= 0) {
+            LOG("{core} Forcing OpenSSL cache size to: %d\n", CONFIG->SSL_CACHE_SIZE);
+        }
+        if (shared_context_init(ctx, CONFIG->SHARED_CACHE, CONFIG->SSL_CACHE_SIZE) < 0) {
             ERR("Unable to alloc memory for shared cache.\n");
             exit(1);
         }
@@ -673,6 +718,10 @@ SSL_CTX *make_ctx(const char *pemfile) {
         }
     }
 #endif
+
+    if (CONFIG->SESSION_TIMEOUT != -1) {
+        SSL_CTX_set_timeout(ctx, CONFIG->SESSION_TIMEOUT);
+    }
 
     RSA_free(rsa);
     return ctx;
@@ -850,8 +899,8 @@ static int create_main_socket() {
 
 /* Initiate a clear-text nonblocking connect() to the backend IP on behalf
  * of a newly connected upstream (encrypted) client*/
-static int create_back_socket() {
-    int s = socket(backaddr->ai_family, SOCK_STREAM, IPPROTO_TCP);
+static int create_back_socket(int backend_index) {
+    int s = socket(backaddr[backend_index]->ai_family, SOCK_STREAM, IPPROTO_TCP);
 
     if (s == -1)
       return -1;
@@ -921,7 +970,7 @@ static void handle_socket_errno(proxystate *ps, int backend) {
 /* Start connect to backend */
 static void start_connect(proxystate *ps) {
     int t = 1;
-    t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(ps->fd_down, backaddr[ps->backend_index]->ai_addr, backaddr[ps->backend_index]->ai_addrlen);
     if (t == 0 || errno == EINPROGRESS || errno == EINTR) {
         ev_io_start(loop, &ps->ev_w_connect);
         return ;
@@ -1006,7 +1055,7 @@ static void handle_connect(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
     int t;
     proxystate *ps = (proxystate *)w->data;
-    t = connect(ps->fd_down, backaddr->ai_addr, backaddr->ai_addrlen);
+    t = connect(ps->fd_down, backaddr[ps->backend_index]->ai_addr, backaddr[ps->backend_index]->ai_addrlen);
     if (!t || errno == EISCONN || !errno) {
         ev_io_stop(loop, &ps->ev_w_connect);
 
@@ -1333,8 +1382,9 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
 
     setnonblocking(client);
     settcpkeepalive(client);
+    settcpusertimeout(client);
 
-    int back = create_back_socket();
+    int back = create_back_socket(backend_index);
 
     if (back == -1) {
         close(client);
@@ -1362,6 +1412,9 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->handshaked = 0;
     ps->renegotiation = 0;
     ps->remote_ip = addr;
+    ps->backend_index = backend_index++;
+    if (backend_index >= CONFIG->BACKENDS_COUNT)
+        backend_index = 0;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
 
@@ -1450,8 +1503,9 @@ static void handle_clear_accept(struct ev_loop *loop, ev_io *w, int revents) {
 
     setnonblocking(client);
     settcpkeepalive(client);
+    settcpusertimeout(client);
 
-    int back = create_back_socket();
+    int back = create_back_socket(backend_index);
 
     if (back == -1) {
         close(client);
@@ -1481,6 +1535,9 @@ static void handle_clear_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->handshaked = 0;
     ps->renegotiation = 0;
     ps->remote_ip = addr;
+    ps->backend_index = backend_index++;
+    if (backend_index >= CONFIG->BACKENDS_COUNT)
+        backend_index = 0;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
 
@@ -1570,12 +1627,15 @@ void init_globals() {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = 0;
-    const int gai_err = getaddrinfo(CONFIG->BACK_IP, CONFIG->BACK_PORT,
-                                    &hints, &backaddr);
-    if (gai_err != 0) {
-        ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
-        exit(1);
+    for (int i = 0; i < CONFIG->BACKENDS_COUNT; i++) {
+        const int gai_err = getaddrinfo(CONFIG->BACKENDS[i].BACK_IP, CONFIG->BACKENDS[i].BACK_PORT,
+                                        &hints, &backaddr[i]);
+        if (gai_err != 0) {
+            ERR("{getaddrinfo}: [%s]", gai_strerror(gai_err));
+            exit(1);
+        }
     }
+    backend_index = 0;
 
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {

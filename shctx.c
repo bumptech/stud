@@ -335,9 +335,10 @@ void shsess_set_new_cbk(void (*func)(unsigned char *, unsigned int, long)) {
 
 /* Init shared memory context if not allocated and set SSL context callbacks
  * size is the max number of stored session
+ * ssl_cache_size is the size of the openssl cache (-1 default, 0 disable internal cache)
  * Returns: -1 on alloc failure, size if performs context alloc, and 0 if just perform
  * callbacks registration */
-int shared_context_init(SSL_CTX *ctx, int size)
+int shared_context_init(SSL_CTX *ctx, int size, int ssl_cache_size)
 {
 	int ret = 0;
 
@@ -383,8 +384,14 @@ int shared_context_init(SSL_CTX *ctx, int size)
 		ret = size;
 	}
 
-	/* set SSL internal cache size to external cache / 8  + 123 */
-	SSL_CTX_sess_set_cache_size(ctx, size >> 3 | 0x3ff);
+        if (ssl_cache_size < 0) {
+          /* set SSL internal cache size to external cache / 8  + 123 */
+          SSL_CTX_sess_set_cache_size(ctx, size >> 3 | 0x3ff);
+        } else if (ssl_cache_size == 0) {
+          SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER | SSL_SESS_CACHE_NO_INTERNAL);
+        } else {
+          SSL_CTX_sess_set_cache_size(ctx, ssl_cache_size);
+        }
 
 	/* Set callbacks */
 	SSL_CTX_sess_set_new_cb(ctx, shctx_new_cb);
