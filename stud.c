@@ -549,6 +549,9 @@ RSA *load_rsa_privatekey(SSL_CTX *ctx, const char *file) {
 
     rsa = PEM_read_bio_RSAPrivateKey(bio, NULL,
           ctx->default_passwd_callback, ctx->default_passwd_callback_userdata);
+    if(!rsa) {
+        ERR_print_errors_fp(stderr);
+    }
     BIO_free(bio);
 
     return rsa;
