@@ -175,6 +175,14 @@ To use DH with stud, you will need to add some bytes to your pem file:
 
 Be sure to set your cipher suite appropriately: -c DHE-RSA-AES256-SHA
 
+
+Deploying with Chef
+-------------------
+
+If you're using Chef for your server infrastructure, you may want to use the premade [stud cookbook](http://community.opscode.com/cookbooks/stud).
+
+It is maintained in its own [github repository](https://github.com/freerobby/chef-stud).
+
 Authors
 -------
 
