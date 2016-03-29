@@ -1,15 +1,15 @@
 #!/bin/sh
 
-### BEGIN INIT INFO                                                                                                                                                                                                                          
-# Provides:          stud                                                                                                                                                                                                                
-# Required-Start:    $local_fs $remote_fs                                                                                                                                                                                                    
-# Required-Stop:     $local_fs $remote_fs                                                                                                                                                                                                    
-# Should-Start:      $syslog                                                                                                                                                                                                                 
-# Should-Stop:       $syslog                                                                                                                                                                                                                 
-# Default-Start:     2 3 4 5                                                                                                                                                                                                                 
-# Default-Stop:      0 1 6                                                                                                                                                                                                                   
-# Short-Description: Start or stop stud (SSL offloader)                                                                                                                                                              
-### END INIT INFO  
+### BEGIN INIT INFO
+# Provides:          stud
+# Required-Start:    $local_fs $remote_fs
+# Required-Stop:     $local_fs $remote_fs
+# Should-Start:      $syslog
+# Should-Stop:       $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start or stop stud (SSL offloader)
+### END INIT INFO
 
 #######################################################
 #                      GLOBALS                        #
@@ -145,7 +145,7 @@ ULIMIT_N=""
 #
 # NOTE: set this only if you really know what your're
 #       doing
-# 
+#
 # ADDITIONAL_STUD_OPT=""
 
 # EOF
@@ -181,7 +181,7 @@ _real_single_instance_start() {
   # generate stud command line options
   opts="-f ${FRONTEND_ADDRESS}"
   opts="${opts} -b ${BACKEND_ADDRESS}"
-  
+
   if [ "${TLS_ONLY}" = "1" ]; then
     opts="${opts} --tls"
   else
@@ -225,7 +225,7 @@ _real_single_instance_start() {
         opts="${opts} -M ${CACHE_UPDATE_IFACE}"
       fi
     fi
-    
+
   fi
 
   # chroot?
@@ -234,6 +234,7 @@ _real_single_instance_start() {
 
   opts="${opts} -q"
   test "${SYSLOG}" = "1" && opts="${opts} -s"
+  test ! -z "${SYSLOG_FACILITY}" && opts="${opts} --syslog-facility=${SYSLOG_FACILITY}"
 
   test "${WRITE_IP}" = "1" && opts="${opts} --write-ip"
   test "${WRITE_PROXY}" = "1" && opts="${opts} --write-proxy"
@@ -286,7 +287,7 @@ _real_single_instance_start() {
   # wait a little bit, check if pid is still alive
   sleep 0.2 >/dev/null 2>&1
   if ! kill -0 "${stud_pid}" >/dev/null 2>&1; then
-    die "Stud started successfully as pid ${stud_pid} but died shortly after startup.";
+    die "Stud started successfully as pid ${stud_pid} but died shortly after startup with output ${out}.";
   fi
 
   # write pid file!
@@ -372,7 +373,7 @@ stud_single_instance_restart() {
     Error="Unable to stop undefined stud instance."
     return 1
   fi
-  
+
   # maybe we need to stop it first...
   if stud_single_instance_status "${name}"; then
     stud_single_instance_stop "${name}" || return 1
@@ -555,7 +556,7 @@ stud_instances_restart() {
       num_failed=$((num_failed + 1))
     fi
   done
-    
+
   if [ "${num_failed}" != "0" ]; then
     return 1
   else
