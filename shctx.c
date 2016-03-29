@@ -7,7 +7,7 @@
  *
  */
 #include <sys/mman.h>
-#ifdef USE_SYSCALL_FUTEX
+#if defined USE_SYSCALL_FUTEX && (defined __i386__ || defined __x86_64__) && defined __linux__
 #include <unistd.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -30,7 +30,7 @@ struct shared_session {
 
 
 struct shared_context {
-#ifdef USE_SYSCALL_FUTEX
+#if defined USE_SYSCALL_FUTEX && (defined __i386__ || defined __x86_64__) && defined __linux__
         unsigned int waiters;
 #else /* USE_SYSCALL_FUTEX */
         pthread_mutex_t mutex;
@@ -47,7 +47,7 @@ static void (*shared_session_new_cbk)(unsigned char *session, unsigned int sessi
 
 
 /* Lock functions */
-#ifdef USE_SYSCALL_FUTEX
+#if defined USE_SYSCALL_FUTEX && (defined __i386__ || defined __x86_64__) && defined __linux__
 static inline unsigned int xchg(unsigned int *ptr, unsigned int x)
 {
 	__asm volatile("lock xchgl %0,%1"
@@ -344,7 +344,7 @@ int shared_context_init(SSL_CTX *ctx, int size)
 	if (!shctx) {
 		int i;
 
-#ifndef USE_SYSCALL_FUTEX
+#if !(defined USE_SYSCALL_FUTEX && (defined __i386__ || defined __x86_64__) && defined __linux__)
 		pthread_mutexattr_t attr;
 #endif /* USE_SYSCALL_FUTEX */
 		struct shared_session *prev,*cur;
@@ -354,7 +354,7 @@ int shared_context_init(SSL_CTX *ctx, int size)
 		if (!shctx || shctx == MAP_FAILED)
 			return -1;
 
-#ifdef USE_SYSCALL_FUTEX
+#if defined USE_SYSCALL_FUTEX && (defined __i386__ || defined __x86_64__) && defined __linux__
 		shctx->waiters = 0;
 #else
 		pthread_mutexattr_init(&attr);
