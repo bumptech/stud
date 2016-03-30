@@ -8,6 +8,7 @@ BINDIR  = $(PREFIX)/bin
 MANDIR  = $(PREFIX)/share/man
 
 CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE -I/usr/local/include
+CFLAGS += -I/usr/include/libev
 LDFLAGS = -lssl -lcrypto -lev -L/usr/local/lib
 OBJS    = stud.o ringbuffer.o configuration.o
 
@@ -48,5 +49,18 @@ install: $(ALL)
 clean:
 	rm -f stud $(OBJS)
 
+GIT_VERSION=$(shell git describe)
+VERSION_MAJOR=$(firstword $(subst -, ,$(GIT_VERSION)))
+TMPDIR=$(shell pwd)/.rpmbuild
+
+rpm:
+	mkdir -p ${TMPDIR}/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+	git archive HEAD . --prefix=stud-$(VERSION_MAJOR)/ \
+		> ${TMPDIR}/SOURCES/stud-source.tar
+	sed -re s/GIT_VERSION/$(shell git describe)/ \
+		rhel/stud.spec > ${TMPDIR}/SPECS/stud.spec
+	rpmbuild --define "_topdir ${TMPDIR}" \
+		-bb ${TMPDIR}/SPECS/stud.spec $(if $(USE_SHARED_CACHE),--with cache,)
+	find ${TMPDIR}/RPMS/ -type f -name "*.rpm" -exec mv {} . \;
 
 .PHONY: all realall
