@@ -17,6 +17,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <syslog.h>
 
 #include "configuration.h"
@@ -38,6 +39,8 @@
 #define CFG_CHROOT "chroot"
 #define CFG_USER "user"
 #define CFG_GROUP "group"
+#define CFG_MAXFDS "max-open-files"
+#define CFG_PARAM_MAXFDS  11012
 #define CFG_QUIET "quiet"
 #define CFG_SYSLOG "syslog"
 #define CFG_SYSLOG_FACILITY "syslog-facility"
@@ -147,6 +150,7 @@ stud_config * config_new (void) {
   r->TCP_KEEPALIVE_TIME = 3600;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
+  r->MAXFDS             = -1;
 
   return r;
 }
@@ -628,6 +632,9 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       }
     }
   }
+  else if (strcmp(k, CFG_MAXFDS) == 0) {
+    r = config_param_val_int(v, &cfg->MAXFDS);
+  }
   else if (strcmp(k, CFG_QUIET) == 0) {
     r = config_param_val_bool(v, &cfg->QUIET);
   }
@@ -894,6 +901,9 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "\n");
   fprintf(out, "  -n  --workers=NUM          Number of worker processes (Default: %ld)\n", cfg->NCORES);
   fprintf(out, "  -B  --backlog=NUM          Set listen backlog size (Default: %d)\n", cfg->BACKLOG);
+  struct rlimit nof;
+  getrlimit(RLIMIT_NOFILE, &nof);
+  fprintf(out, "      --"CFG_MAXFDS"=NUM   Set maximum open files before (Default: %d)\n", (int) nof.rlim_cur);
   fprintf(out, "  -k  --keepalive=SECS       TCP keepalive on client socket (Default: %d)\n", cfg->TCP_KEEPALIVE_TIME);
 
 #ifdef USE_SHARED_CACHE
@@ -1067,6 +1077,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, FMT_QSTR, CFG_GROUP, config_disp_gid(cfg->GID));
   fprintf(fd, "\n");
 
+  fprintf(fd, "# Set the maximum number of open files (and sockets) before switching uid\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: integer\n");
+  fprintf(fd, FMT_ISTR, CFG_MAXFDS, cfg->MAXFDS);
+  fprintf(fd, "\n");
+
   fprintf(fd, "# Quiet execution, report only error messages\n");
   fprintf(fd, "#\n");
   fprintf(fd, "# type: boolean\n");
@@ -1157,6 +1173,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_CHROOT, 1, NULL, 'r' },
     { CFG_USER, 1, NULL, 'u' },
     { CFG_GROUP, 1, NULL, 'g' },
+    { CFG_MAXFDS, 1, NULL, CFG_PARAM_MAXFDS },
     { CFG_QUIET, 0, NULL, 'q' },
     { CFG_SYSLOG, 0, NULL, 's' },
     { CFG_SYSLOG_FACILITY, 1, NULL, CFG_PARAM_SYSLOG_FACILITY },
@@ -1197,6 +1214,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
 #endif
       case CFG_PARAM_SYSLOG_FACILITY:
         config_param_validate(CFG_SYSLOG_FACILITY, optarg, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_MAXFDS:
+        config_param_validate(CFG_MAXFDS, optarg, cfg, NULL, 0);
         break;
       case 'c':
         config_param_validate(CFG_CIPHERS, optarg, cfg, NULL, 0);

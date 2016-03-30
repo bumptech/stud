@@ -122,6 +122,7 @@ Detail about the entire set of options can be found by invoking `stud -h`:
 
       -n  --workers=NUM          Number of worker processes (Default: 1)
       -B  --backlog=NUM          Set listen backlog size (Default: 100)
+          --max-open-files=NUM   Set maximum open files before (Default: 1024)
       -k  --keepalive=SECS       TCP keepalive on client socket (Default: 3600)
 
     SECURITY:

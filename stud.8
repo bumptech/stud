@@ -44,6 +44,8 @@
 .Op Fl r Ar path
 .Op Fl u Ar username
 .Op Fl qs
+.Op Fl -max-open-files Ns =num
+.Op Fl -syslog-facility Ns =facility
 .Op Fl -write-ip
 .Op Fl -write-proxy
 .Ar certificate.pem
@@ -100,6 +102,8 @@ Set shared cache size in sessions. By default, no shared cache is used.
 Chroot to the given path. By default, no chroot is done.
 .It Fl u Ar username
 Set GID/UID after binding the socket. By default, no privilege is dropped.
+.It Fl -max-open-files Ns =num
+Set the maximum number of open files before switching user id.
 .It Fl q
 Be quiet. Only emit error messages.
 .It Fl s
@@ -107,7 +111,7 @@ Send messages to syslog in addition to
 .Em stderr
 and
 .Em stdout .
-.It Fl -syslog-facility Ar facility
+.It Fl -syslog-facility Ns =facility
 Syslog facility to use. Default is
 .Ar daemon .
 .It Fl -write-ip

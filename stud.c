@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <netdb.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
@@ -1831,6 +1832,14 @@ int main(int argc, char **argv) {
 
     /* load certificates, pass to handle_connections */
     init_openssl();
+
+    if (CONFIG->MAXFDS >= 0) {
+        struct rlimit nof;
+        nof.rlim_cur = CONFIG->MAXFDS;
+        nof.rlim_max = CONFIG->MAXFDS;
+        if (setrlimit(RLIMIT_NOFILE, &nof))
+            fail("setrlimit failed");
+    }
 
     if (CONFIG->CHROOT && CONFIG->CHROOT[0])
         change_root();
