@@ -652,6 +652,11 @@ SSL_CTX *make_ctx(const char *pemfile) {
     }
 #endif /* OPENSSL_NO_TLSEXT */
 
+#ifdef ENABLE_TACK
+	if (CONFIG->TACK_FILE || CONFIG->TACK_BREAK_SIGS_FILE)
+		SSL_CTX_use_tack_files(ctx, CONFIG->TACK_FILE, CONFIG->TACK_BREAK_SIGS_FILE, CONFIG->TACK_PIN_ACTIVATION);	
+#endif
+
 #ifdef USE_SHARED_CACHE
     if (CONFIG->SHARED_CACHE) {
         if (shared_context_init(ctx, CONFIG->SHARED_CACHE) < 0) {
