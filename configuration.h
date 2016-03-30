@@ -37,7 +37,7 @@ struct cert_files {
 };
 
 /* configuration structure */
-struct __stud_config {
+typedef struct stud_config_s {
     ENC_TYPE ETYPE;
     PROXY_MODE PMODE;
     int WRITE_IP_OCTET;
@@ -69,9 +69,7 @@ struct __stud_config {
     int TCP_KEEPALIVE_TIME;
     int DAEMONIZE;
     int PREFER_SERVER_CIPHERS;
-};
-
-typedef struct __stud_config stud_config;
+} stud_config;
 
 char * config_error_get (void);
 stud_config * config_new (void);
