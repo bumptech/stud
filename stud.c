@@ -168,6 +168,8 @@ typedef struct proxystate {
     int clear_connected:1;              /* Clear stream is connected  */
     int renegotiation:1;                /* Renegotation is occuring */
 
+    int sent_xff:1;                     /* Have sent X-Forwarded-For header */
+
     SSL *ssl;                           /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
@@ -803,6 +805,37 @@ static void prepare_proxy_line(struct sockaddr* ai_addr) {
     }
 }
 
+char *prepare_xff_line(struct sockaddr* ai_addr) {
+    static char xff_line[128];
+    xff_line[0] = 0;
+    char tcp6_address_string[INET6_ADDRSTRLEN];
+
+    if (ai_addr->sa_family == AF_INET) {
+        struct sockaddr_in* addr = (struct sockaddr_in*)ai_addr;
+        size_t res = snprintf(xff_line,
+                sizeof(xff_line),
+                "X-Forwarded-For: %s\r\nX-Forwarded-Proto: https\r\n",
+                inet_ntoa(addr->sin_addr));
+        assert(res < sizeof(xff_line));
+        return xff_line;
+    }
+    else if (ai_addr->sa_family == AF_INET6 ) {
+      struct sockaddr_in6* addr = (struct sockaddr_in6*)ai_addr;
+      inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
+      size_t res = snprintf(xff_line,
+                            sizeof(xff_line),
+                            "X-Forwarded-For: %s\r\nX-Forwarded-Proto: https\r\n",
+                            tcp6_address_string);
+      assert(res < sizeof(xff_line));
+      return xff_line;
+    }
+    else {
+        ERR("The --write-xff mode is not implemented for this address family.\n");
+        exit(1);
+    }
+    return NULL;
+}
+
 /* Create the bound socket in the parent process */
 static int create_main_socket() {
     struct addrinfo *ai, hints;
@@ -946,6 +979,7 @@ static void clear_read(struct ev_loop *loop, ev_io *w, int revents) {
     t = recv(fd, buf, RING_DATA_LEN, 0);
 
     if (t > 0) {
+        ps->sent_xff = 0;
         ringbuffer_write_append(&ps->ring_clear2ssl, t);
         if (ringbuffer_is_full(&ps->ring_clear2ssl))
             ev_io_stop(loop, &ps->ev_r_clear);
@@ -973,7 +1007,50 @@ static void clear_write(struct ev_loop *loop, ev_io *w, int revents) {
     assert(!ringbuffer_is_empty(&ps->ring_ssl2clear));
 
     char *next = ringbuffer_read_next(&ps->ring_ssl2clear, &sz);
-    t = send(fd, next, sz, MSG_NOSIGNAL);
+
+        
+    if (ps->sent_xff == 0 && CONFIG->WRITE_XFF_LINE) {
+        for(int i = 0; i < sz; i++) {
+            if(next[i] == '\n') {
+                const char *xff_line = prepare_xff_line((struct sockaddr *)&(ps->remote_ip));
+                /* Send the request through because we don't know where it's
+                 * from */
+                if(xff_line == NULL) {
+                    ps->sent_xff = 1;
+                    break;
+                }
+                int temporary_buffer_length = sz + strlen(xff_line);
+                char *temporary_buffer = (char *)malloc(temporary_buffer_length);
+                /* Send the request through because we don't have enough
+                 * RAM to fiddle with the headers */
+                if(temporary_buffer == NULL) {
+                    ps->sent_xff = 1;
+                    break;
+                }
+                /* Create a temporary buffer with the original HTTP line, the
+                 * XFF header, and the remainer of the ringbuffer */
+                int http_line_length = i+1;
+                int xff_line_length = strlen(xff_line);
+                memcpy(temporary_buffer, next, http_line_length);
+                memcpy(temporary_buffer+http_line_length, xff_line, xff_line_length);
+                memcpy(temporary_buffer+http_line_length+xff_line_length, next+http_line_length, sz-http_line_length);
+
+                ringbuffer_read_pop(&ps->ring_ssl2clear);
+
+                char *write_ptr = ringbuffer_write_ptr(&ps->ring_ssl2clear);
+                memcpy(write_ptr, temporary_buffer, temporary_buffer_length);
+                ringbuffer_write_append(&ps->ring_ssl2clear, temporary_buffer_length);
+                next = write_ptr;
+                sz = temporary_buffer_length;
+                free(temporary_buffer);
+
+                ps->sent_xff = 1;
+                break;
+            }
+        }
+    }
+
+    t = send(fd, next, sz, MSG_NOSIGNAL);        
 
     if (t > 0) {
         if (t == sz) {
@@ -1361,6 +1438,7 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->clear_connected = 0;
     ps->handshaked = 0;
     ps->renegotiation = 0;
+    ps->sent_xff = 0;
     ps->remote_ip = addr;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
